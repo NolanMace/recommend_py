@@ -29,11 +29,11 @@ echo -e "${GREEN}使用Python版本:${NC} $(python --version)"
 VENV_DIR="venv"
 if [ ! -d "$VENV_DIR" ]; then
     echo -e "${YELLOW}未找到虚拟环境目录 '${VENV_DIR}'${NC}"
-    echo -e "${YELLOW}尝试使用打包的wheels目录安装依赖...${NC}"
+    echo -e "${YELLOW}尝试使用打包的deps/wheels目录安装依赖...${NC}"
     
     # 检查wheels目录
-    if [ ! -d "wheels" ]; then
-        echo -e "${RED}错误: 未找到wheels目录，无法离线安装依赖${NC}"
+    if [ ! -d "deps/wheels" ]; then
+        echo -e "${RED}错误: 未找到deps/wheels目录，无法离线安装依赖${NC}"
         echo -e "${RED}请确保项目包含预先下载的依赖包${NC}"
         exit 1
     fi
@@ -47,12 +47,12 @@ if [ ! -d "$VENV_DIR" ]; then
     source "$VENV_DIR/bin/activate"
     
     # 升级pip
-    echo -e "${GREEN}从wheels目录安装基础工具...${NC}"
-    pip install --no-index --find-links=wheels pip setuptools wheel
+    echo -e "${GREEN}从deps/wheels目录安装基础工具...${NC}"
+    pip install --no-index --find-links=deps/wheels pip setuptools wheel
     
     # 安装所有依赖
-    echo -e "${GREEN}从wheels目录安装项目依赖...${NC}"
-    pip install --no-index --find-links=wheels -r requirements.txt
+    echo -e "${GREEN}从deps/wheels目录安装项目依赖...${NC}"
+    pip install --no-index --find-links=deps/wheels -r requirements.txt
 else
     # 激活虚拟环境
     echo -e "${GREEN}使用现有虚拟环境...${NC}"
@@ -62,8 +62,13 @@ fi
 # 检查依赖是否安装成功
 echo -e "${GREEN}检查关键依赖是否已安装...${NC}"
 python -c "import numpy; print('NumPy版本:', numpy.__version__)" || {
-    echo -e "${RED}依赖检查失败，可能安装不完整${NC}"
-    exit 1
+    echo -e "${YELLOW}未找到NumPy，尝试安装...${NC}"
+    if [ -d "deps/wheels" ]; then
+        pip install --no-index --find-links=deps/wheels numpy
+    else
+        echo -e "${RED}依赖检查失败，无法找到deps/wheels目录${NC}"
+        exit 1
+    fi
 }
 
 # 初始化数据库（如果需要）

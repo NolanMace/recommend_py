@@ -34,10 +34,10 @@ if [[ $CLEAN == "y" || $CLEAN == "Y" ]]; then
     echo -e "${GREEN}清理完成${NC}"
 fi
 
-# 创建wheels目录
-WHEELS_DIR="wheels"
+# 创建deps/wheels目录
+WHEELS_DIR="deps/wheels"
 if [ ! -d "$WHEELS_DIR" ]; then
-    echo -e "${GREEN}创建wheels目录...${NC}"
+    echo -e "${GREEN}创建${WHEELS_DIR}目录...${NC}"
     mkdir -p "$WHEELS_DIR"
 fi
 
@@ -135,7 +135,7 @@ chmod +x offline_deploy.sh  # 确保有执行权限
 ## 注意事项
 
 1. 项目将自动创建虚拟环境并安装所有依赖
-2. 依赖包储存在 `wheels` 目录中，请勿删除
+2. 依赖包储存在 `deps/wheels` 目录中，请勿删除
 3. 日志文件保存在 `logs` 目录中
 
 ## 故障排除
@@ -143,7 +143,7 @@ chmod +x offline_deploy.sh  # 确保有执行权限
 如果遇到依赖安装问题，请确保:
 
 1. Python版本为3.9或更高
-2. wheels目录完整无损
+2. deps/wheels目录完整无损
 3. 对虚拟环境目录有写入权限
 
 ## 联系方式
