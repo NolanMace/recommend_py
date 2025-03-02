@@ -1,0 +1,29 @@
+
+# Python缓存文件
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+
+# 日志和缓存
+logs/
+*.log
+.recommend_cache/
+.pip_cache/
+pip_packages/
+wheels/
+
+# 开发工具相关
+.ipynb_checkpoints/
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# 系统文件
+.DS_Store
+Thumbs.db
+
+# 备份文件
+*.bak 
