@@ -17,11 +17,11 @@ echo %BLUE%         推荐系统启动脚本 (Windows)          %NC%
 echo %BLUE%============================================%NC%
 
 :: 检测虚拟环境
-if not exist "venv" (
-    echo %RED%错误: 未找到虚拟环境 (venv 目录)%NC%
+if not exist ".venv" (
+    echo %RED%错误: 未找到虚拟环境 (.venv 目录)%NC%
     echo %YELLOW%请先创建虚拟环境：%NC%
-    echo python -m venv venv
-    echo venv\Scripts\activate
+    echo python -m venv .venv
+    echo .venv\Scripts\activate
     echo pip install -r requirements.txt
     pause
     exit /b 1
@@ -41,7 +41,7 @@ if not exist "%LOG_DIR%" (
 
 :: 激活虚拟环境
 echo %GREEN%正在激活虚拟环境...%NC%
-call venv\Scripts\activate.bat
+call .venv\Scripts\activate.bat
 
 :: 检查虚拟环境是否激活成功
 if %ERRORLEVEL% neq 0 (
