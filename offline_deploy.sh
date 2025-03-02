@@ -16,14 +16,16 @@ echo -e "${BLUE}============================================${NC}"
 echo -e "${BLUE}      推荐系统离线部署脚本                 ${NC}"
 echo -e "${BLUE}============================================${NC}"
 
-# 检查Python是否安装
-command -v python >/dev/null 2>&1 || { 
-    echo -e "${RED}错误: 未找到Python，请先安装Python 3.x${NC}" 
+# 检查便携式Python是否存在
+PORTABLE_PYTHON="./deps/portable_python/python-3.9.12/bin/python"
+if [ ! -f "$PORTABLE_PYTHON" ]; then
+    echo -e "${RED}错误: 未找到便携式Python${NC}"
+    echo -e "${RED}请确保已运行prepare_portable_python.sh脚本${NC}"
     exit 1
-}
+fi
 
 # 显示Python版本
-echo -e "${GREEN}使用Python版本:${NC} $(python --version)"
+echo -e "${GREEN}使用便携式Python版本:${NC} $($PORTABLE_PYTHON --version)"
 
 # 设置虚拟环境目录
 VENV_DIR="venv"
@@ -68,7 +70,7 @@ fi
 # 创建新的虚拟环境（如果需要）
 if [ ! -d "$VENV_DIR" ]; then
     echo -e "${GREEN}创建新的虚拟环境...${NC}"
-    python -m venv "$VENV_DIR"
+    "$PORTABLE_PYTHON" -m venv "$VENV_DIR"
     
     if [ ! -d "$VENV_DIR" ]; then
         echo -e "${RED}错误: 无法创建虚拟环境${NC}"

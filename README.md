@@ -159,3 +159,71 @@ chmod +x offline_deploy.sh
 # 组合多个参数
 ./offline_deploy.sh --init-db --debug
 ```
+
+### 便携式 Python 部署（无需安装 Python）
+
+本系统支持完全便携式部署，即使在目标服务器没有安装 Python 的情况下也能运行。系统会携带一个完整的 Python 解释器和所有依赖包。
+
+#### 准备便携式部署包（在联网环境执行）
+
+1. 下载 Python 解释器并准备便携式部署包：
+
+```bash
+# 设置执行权限
+chmod +x prepare_portable_python.sh
+
+# 执行便携式Python准备脚本
+./prepare_portable_python.sh
+```
+
+该脚本会：
+
+- 下载并编译 Python 3.9.12 解释器
+- 创建 deps/portable_python 目录存放 Python 解释器
+- 下载所有依赖到 deps/wheels 目录
+- 更新部署脚本以使用便携式 Python
+
+2. 将整个项目目录（包括便携式 Python）打包传输到离线服务器：
+
+```bash
+# Linux/macOS
+tar -czf recommend_system_portable.tar.gz 项目目录/
+
+# 或Windows环境
+zip -r recommend_system_portable.zip 项目目录/
+```
+
+#### 便携式部署步骤
+
+1. 解压部署包：
+
+```bash
+tar -xzf recommend_system_portable.tar.gz
+cd 项目目录
+```
+
+2. 运行离线部署脚本（与标准部署相同）：
+
+```bash
+# 确保脚本有执行权限
+chmod +x offline_deploy.sh
+
+# 首次部署（初始化数据库）
+./offline_deploy.sh --init-db
+
+# 常规运行
+./offline_deploy.sh
+```
+
+3. 如果遇到运行问题，强制重建虚拟环境：
+
+```bash
+./offline_deploy.sh --force-recreate-venv
+```
+
+#### 便携式部署的优势
+
+- **零依赖**：目标服务器无需安装 Python 或任何其他软件
+- **版本一致性**：保证所有服务器使用完全相同的 Python 版本和依赖
+- **完全隔离**：避免与服务器上已有的 Python 环境冲突
+- **自包含**：整个系统作为独立单元，可在任何 Linux/macOS 服务器上运行
