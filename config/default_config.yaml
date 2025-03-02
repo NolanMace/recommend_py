@@ -45,22 +45,47 @@ cache:
 recommender:
   model_dir: ./models
   default_top_n: 50
+  similarity_threshold: 0.7 # 默认相似度阈值
+  diversity_weight: 0.2 # 默认多样性权重
   algorithms:
     tfidf:
       enabled: true
       weight: 0.6
-      min_df: 5
-      max_features: 10000
     collaborative:
       enabled: true
       weight: 0.4
-      min_interactions: 5
-      neighborhood_size: 50
-  cold_start:
-    use_popular: true
-    use_category: true
-    popular_weight: 0.7
-    category_weight: 0.3
+  infinite_scroll:
+    enabled: true
+    # 分层推荐策略
+    tiers:
+      tier1:
+        max_page: 3 # 前3页
+        similarity_threshold: 0.7 # 严格个性化推荐
+        diversity_weight: 0.2
+        pool_weights:
+          hot: 0.2
+          new: 0.1
+          quality: 0.7
+      tier2:
+        max_page: 10 # 4-10页
+        similarity_threshold: 0.56 # 降低20%相似度阈值
+        diversity_weight: 0.3 # 增加50%多样性
+        pool_weights:
+          hot: 0.4
+          new: 0.3
+          quality: 0.3
+      tier3:
+        # 10页以后
+        similarity_threshold: 0.42 # 降低40%相似度阈值
+        diversity_weight: 0.4 # 增加100%多样性
+        pool_weights:
+          hot: 0.3
+          new: 0.5
+          quality: 0.2
+    # 已浏览内容记录
+    viewed_items:
+      ttl: 604800 # 7天过期时间(秒)
+      max_size: 10000 # 每用户最大记录数
 
 # 曝光池配置
 exposure_pool:
@@ -172,3 +197,18 @@ monitoring:
     prometheus: true
     health: true
     info: true
+
+# API配置
+api:
+  host: 0.0.0.0
+  port: 5000
+  debug: false
+  version: 1.0.0
+  rate_limit:
+    enabled: true
+    default_limit: 100 # 每分钟请求数
+    recommendations_limit: 60 # 推荐接口每分钟请求数
+  pagination:
+    default_page_size: 20
+    max_page_size: 100
+    infinite_scroll: true # 启用无限滚动

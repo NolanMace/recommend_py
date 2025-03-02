@@ -65,6 +65,29 @@
 - **配置管理**: 基于 YAML 的集中式配置，支持默认配置和用户自定义配置
 - **缓存管理**: 高效的内存 LRU 缓存策略，自动清理过期数据
 - **数据库优化**: 连接池管理及查询优化，提供熔断机制保护数据库
+- **无限滚动推荐**: 多层级推荐策略，支持用户无限向下刷新时提供持续推荐
+
+## 无限滚动推荐策略
+
+推荐系统实现了多层级的推荐策略，确保用户可以持续获取内容推荐：
+
+1. **分层推荐**：
+
+   - 前 3 页：严格个性化推荐
+   - 4-10 页：混合推荐（个性化+热门内容）
+   - 10 页以后：扩展推荐（降低相似度阈值，扩大兴趣范围）
+
+2. **动态扩展**：随着滚动深度增加，系统会：
+
+   - 逐步降低内容相似度阈值
+   - 扩展用户兴趣领域
+   - 增加推荐内容多样性
+
+3. **兜底机制**：当推荐数量不足时，自动补充：
+   - 热门内容
+   - 最新内容
+   - 高质量内容
+4. **已浏览记录**：系统会记录用户已浏览内容，确保不会重复推荐。
 
 ## 内存缓存设计
 
@@ -80,6 +103,7 @@
 
 - 热点话题: 5 分钟过期时间
 - 用户推荐结果: 1 小时过期时间
+- 用户浏览历史: 7 天过期时间
 - 系统配置: 24 小时过期时间
 
 ## 系统特点
@@ -89,6 +113,7 @@
 - **高可靠**: 内置熔断器和异常处理机制，防止系统雪崩
 - **可扩展**: 模块化设计，易于扩展和定制
 - **易部署**: 简化的部署要求，适合各种环境
+- **无限滚动**: 支持用户持续浏览，提供源源不断的内容
 
 ## 数据库连接池
 
@@ -144,39 +169,100 @@
    ```
 
 6. 运行应用
+
    ```bash
+   # 运行后台服务
    python app.py
+
+   # 或运行API服务
+   ./run_api.sh
    ```
 
-### 配置示例
+## API 接口
 
-以下是一些常用配置示例：
+系统提供了以下 API 接口：
 
-1. 调整内存缓存大小
+1. **获取推荐**：
 
-   ```yaml
-   cache:
-     memory:
-       max_size: 50000 # 增加缓存容量
-       ttl: 7200 # 延长默认过期时间
+   ```
+   GET /api/recommendations?user_id=<user_id>&page=<page>&page_size=<page_size>
    ```
 
-2. 修改数据库连接池设置
+2. **获取热门话题**：
 
-   ```yaml
-   database:
-     mysql:
-       pool_size: 20 # 增加连接池大小
-       pool_recycle: 1800 # 减少连接回收时间
+   ```
+   GET /api/hot_topics?count=<count>
    ```
 
-3. 调整任务调度频率
-   ```yaml
-   scheduler:
-     tasks:
-       hot_topics:
-         interval: 600 # 将热点话题更新间隔改为10分钟
+3. **标记内容为已浏览**：
    ```
+   POST /api/mark_viewed
+   Body: {"user_id": "<user_id>", "item_ids": [<item_id1>, <item_id2>, ...]}
+   ```
+
+### 示例：无限滚动推荐
+
+前端实现无限滚动推荐的伪代码示例：
+
+```javascript
+let page = 1;
+const pageSize = 20;
+let isLoading = false;
+let hasMore = true;
+let viewedItems = new Set();
+
+// 初始加载
+loadRecommendations();
+
+// 监听滚动事件
+window.addEventListener("scroll", () => {
+  if (isNearBottom() && !isLoading && hasMore) {
+    loadMoreRecommendations();
+  }
+});
+
+async function loadRecommendations() {
+  isLoading = true;
+  try {
+    const response = await fetch(
+      `/api/recommendations?user_id=${userId}&page=${page}&page_size=${pageSize}`
+    );
+    const data = await response.json();
+
+    renderItems(data.recommendations);
+
+    // 更新状态
+    hasMore = data.has_more;
+    page++;
+
+    // 记录已浏览的内容
+    data.recommendations.forEach((item) => viewedItems.add(item.post_id));
+  } catch (error) {
+    console.error("加载推荐失败:", error);
+  } finally {
+    isLoading = false;
+  }
+}
+
+function loadMoreRecommendations() {
+  loadRecommendations();
+}
+
+function isNearBottom() {
+  return (
+    window.innerHeight + window.scrollY >= document.body.offsetHeight - 500
+  );
+}
+
+function renderItems(items) {
+  // 渲染推荐内容到页面
+  const container = document.getElementById("recommendations-container");
+  items.forEach((item) => {
+    const element = createItemElement(item);
+    container.appendChild(element);
+  });
+}
+```
 
 ## 配置文件
 
@@ -189,6 +275,8 @@
 - 任务调度频率和优先级
 - 日志级别和输出方式
 - 熔断器参数
+- 分页加载设置
+- 无限滚动策略参数
 
 ## 使用注意事项
 
