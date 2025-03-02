@@ -5,6 +5,13 @@ __pycache__/
 *.so
 .Python
 
+# 虚拟环境
+venv/
+env/
+ENV/
+.env/
+.venv/
+
 # 日志和缓存
 logs/
 *.log
