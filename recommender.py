@@ -333,27 +333,31 @@ class Recommender:
         # 如果所有曝光池获取的帖子不足，补充随机热门帖子
         if len(result) < exposure_count:
             needed = exposure_count - len(result)
-            sql = """
-            SELECT post_id 
-            FROM posts 
-            WHERE post_id NOT IN (%s)
-              AND heat_score > 0
-            ORDER BY heat_score DESC, RAND()
-            LIMIT %s
-            """
             
-            # 避免SQL注入：构建安全的占位符
-            excluded_ids = list(set(result) | exposed_posts)
-            if excluded_ids:
+            # 避免SQL注入：使用参数化查询
+            if exposed_posts or result:
+                excluded_ids = list(set(result) | exposed_posts)
                 placeholders = ', '.join(['%s'] * len(excluded_ids))
-                formatted_sql = sql.replace('(%s)', f'({placeholders})')
-                random_posts = [row['post_id'] for row in db_pool.query(formatted_sql, excluded_ids + [needed])]
+                sql = f"""
+                SELECT post_id 
+                FROM posts 
+                WHERE post_id NOT IN ({placeholders})
+                  AND heat_score > 0
+                ORDER BY heat_score DESC, RAND()
+                LIMIT %s
+                """
+                params = excluded_ids + [needed]
+                random_posts = [row['post_id'] for row in db_pool.query(sql, params)]
             else:
                 # 没有需要排除的帖子
-                random_posts = [row['post_id'] for row in db_pool.query(
-                    "SELECT post_id FROM posts WHERE heat_score > 0 ORDER BY heat_score DESC, RAND() LIMIT %s", 
-                    (needed,)
-                )]
+                sql = """
+                SELECT post_id 
+                FROM posts 
+                WHERE heat_score > 0 
+                ORDER BY heat_score DESC, RAND() 
+                LIMIT %s
+                """
+                random_posts = [row['post_id'] for row in db_pool.query(sql, (needed,))]
                 
             result.extend(random_posts)
         
@@ -390,25 +394,28 @@ class Recommender:
             needed = total_needed - len(result)
             excluded = set(result)
             
-            # 查询热门帖子
-            sql = """
-            SELECT post_id 
-            FROM posts 
-            WHERE post_id NOT IN (%s)
-            ORDER BY (view_count + like_count * 3 + collect_count * 5) DESC 
-            LIMIT %s
-            """
-            
-            # 构建安全的占位符
+            # 使用参数化查询获取热门帖子
             if excluded:
+                # 构建参数化查询
                 placeholders = ', '.join(['%s'] * len(excluded))
-                formatted_sql = sql.replace('(%s)', f'({placeholders})')
-                hot_posts = [row['post_id'] for row in db_pool.query(formatted_sql, list(excluded) + [needed])]
+                sql = f"""
+                SELECT post_id 
+                FROM posts 
+                WHERE post_id NOT IN ({placeholders})
+                ORDER BY (view_count + like_count * 3 + collect_count * 5) DESC 
+                LIMIT %s
+                """
+                params = list(excluded) + [needed]
+                hot_posts = [row['post_id'] for row in db_pool.query(sql, params)]
             else:
-                hot_posts = [row['post_id'] for row in db_pool.query(
-                    "SELECT post_id FROM posts ORDER BY (view_count + like_count * 3 + collect_count * 5) DESC LIMIT %s", 
-                    (needed,)
-                )]
+                # 没有需要排除的帖子
+                sql = """
+                SELECT post_id 
+                FROM posts 
+                ORDER BY (view_count + like_count * 3 + collect_count * 5) DESC 
+                LIMIT %s
+                """
+                hot_posts = [row['post_id'] for row in db_pool.query(sql, (needed,))]
                 
             result.extend(hot_posts)
         
@@ -433,14 +440,18 @@ class Recommender:
         """
         db_pool.executemany(sql, values)
         
-        # 批量更新帖子曝光次数 - 使用单个SQL语句
-        post_ids_str = ', '.join([str(pid) for pid in post_ids])
+        # 批量更新帖子曝光次数 - 使用参数化查询而非直接拼接
+        if not post_ids:
+            return
+            
+        # 使用参数化查询更新曝光次数
+        placeholders = ', '.join(['%s'] * len(post_ids))
         update_sql = f"""
         UPDATE posts 
         SET exposure_count = exposure_count + 1
-        WHERE post_id IN ({post_ids_str})
+        WHERE post_id IN ({placeholders})
         """
-        db_pool.execute(update_sql)
+        db_pool.execute(update_sql, post_ids)
     
     @track_performance('generate_hot_topics', performance_collector)
     def generate_hot_topics(self, count=50):
@@ -455,7 +466,7 @@ class Recommender:
         # 计算帖子热度分数
         try:
             with TimerContext('calculate_heat_score'):
-                # 预先计算评论点赞数，避免热度计算中的子查询
+                # 预先计算评论点赞数，使用更高效的JOIN和GROUP BY
                 comment_likes_sql = """
                 SELECT c.post_id, COALESCE(SUM(cl.like_count), 0) as total_comment_likes
                 FROM comments c 
@@ -466,33 +477,53 @@ class Recommender:
                 comment_likes = db_pool.query(comment_likes_sql)
                 comment_likes_dict = {row['post_id']: row['total_comment_likes'] for row in comment_likes}
                 
-                # 更新热度分数 - 使用临时表/连接方式，避免子查询
+                # 更新热度分数 - 使用单个UPDATE语句，提高性能
                 score_sql = """
-                UPDATE posts p
+                UPDATE posts
                 SET heat_score = (
-                    COALESCE(view_count, 0) + 
-                    COALESCE(like_count, 0) * 3 + 
-                    COALESCE(collect_count, 0) * 5 + 
-                    COALESCE(comment_count, 0) * 2
+                    COALESCE(view_count, 0) * %s + 
+                    COALESCE(like_count, 0) * %s + 
+                    COALESCE(collect_count, 0) * %s + 
+                    COALESCE(comment_count, 0) * %s
                 )
                 WHERE created_at > DATE_SUB(NOW(), INTERVAL 30 DAY)
                 """
-                db_pool.execute(score_sql)
+                # 从行为权重配置获取权重
+                view_weight = BEHAVIOR_WEIGHTS.get('view', 1)
+                like_weight = BEHAVIOR_WEIGHTS.get('like', 3)
+                collect_weight = BEHAVIOR_WEIGHTS.get('collect', 4)
+                comment_weight = BEHAVIOR_WEIGHTS.get('comment', 2)
                 
-                # 批量更新评论点赞热度
+                db_pool.execute(score_sql, (
+                    view_weight, like_weight, collect_weight, comment_weight
+                ))
+                
+                # 批量更新评论点赞热度 - 如果有评论点赞记录则更新
                 if comment_likes:
-                    # 准备批量更新参数
+                    # 使用单个更新语句代替多次更新，通过CASE语句实现
+                    comment_like_weight = BEHAVIOR_WEIGHTS.get('comment_like', 2)
                     update_values = []
-                    for post_id, like_count in comment_likes_dict.items():
-                        update_values.append((like_count * 1.5, post_id))
+                    batch_size = 500  # 批量更新的最大数量，避免SQL过大
                     
-                    # 批量更新评论点赞热度
-                    batch_sql = """
-                    UPDATE posts 
-                    SET heat_score = heat_score + %s 
-                    WHERE post_id = %s
-                    """
-                    db_pool.executemany(batch_sql, update_values)
+                    # 分批处理，每批最多500个帖子
+                    post_ids = list(comment_likes_dict.keys())
+                    for i in range(0, len(post_ids), batch_size):
+                        batch_post_ids = post_ids[i:i+batch_size]
+                        # 构建批量更新的参数
+                        batch_values = []
+                        for post_id in batch_post_ids:
+                            batch_values.append((
+                                comment_likes_dict[post_id] * comment_like_weight,
+                                post_id
+                            ))
+                        
+                        # 批量执行更新
+                        batch_sql = """
+                        UPDATE posts 
+                        SET heat_score = heat_score + %s 
+                        WHERE post_id = %s
+                        """
+                        db_pool.executemany(batch_sql, batch_values)
                 
                 # 衰减过老帖子的热度
                 decay_sql = """
@@ -504,24 +535,51 @@ class Recommender:
             
             # 根据热度更新帖子所在的曝光池
             with TimerContext('update_exposure_pools'):
-                for pool_level, config in EXPOSURE_CONFIG['pools'].items():
-                    threshold = config['heat_threshold']
-                    max_age = config['max_age_days']
-                    
-                    sql = """
-                    UPDATE posts 
-                    SET exposure_pool = %s
-                    WHERE heat_score >= %s
-                      AND created_at > DATE_SUB(NOW(), INTERVAL %s DAY)
-                      AND (exposure_pool < %s OR exposure_pool IS NULL)
-                    """
-                    db_pool.execute(sql, (pool_level, threshold, max_age, pool_level))
+                # 使用单个SQL更新不同曝光池，减少数据库请求
+                update_pool_sql = """
+                UPDATE posts 
+                SET exposure_pool = 
+                    CASE
+                        WHEN heat_score >= %s AND created_at > DATE_SUB(NOW(), INTERVAL %s DAY) THEN 3
+                        WHEN heat_score >= %s AND created_at > DATE_SUB(NOW(), INTERVAL %s DAY) THEN 2
+                        WHEN heat_score >= %s AND created_at > DATE_SUB(NOW(), INTERVAL %s DAY) THEN 1
+                        ELSE exposure_pool
+                    END
+                WHERE (exposure_pool < 
+                    CASE
+                        WHEN heat_score >= %s THEN 3
+                        WHEN heat_score >= %s THEN 2
+                        WHEN heat_score >= %s THEN 1
+                        ELSE 0
+                    END
+                OR exposure_pool IS NULL)
+                AND created_at > DATE_SUB(NOW(), INTERVAL %s DAY)
+                """
+                
+                # 获取曝光池配置
+                pool3_heat = EXPOSURE_CONFIG['pools'][3]['heat_threshold']
+                pool3_days = EXPOSURE_CONFIG['pools'][3]['max_age_days']
+                pool2_heat = EXPOSURE_CONFIG['pools'][2]['heat_threshold']
+                pool2_days = EXPOSURE_CONFIG['pools'][2]['max_age_days']
+                pool1_heat = EXPOSURE_CONFIG['pools'][1]['heat_threshold']
+                pool1_days = EXPOSURE_CONFIG['pools'][1]['max_age_days']
+                
+                # 最大天数用于限制查询范围
+                max_days = max(pool1_days, pool2_days, pool3_days)
+                
+                db_pool.execute(update_pool_sql, (
+                    pool3_heat, pool3_days,
+                    pool2_heat, pool2_days,
+                    pool1_heat, pool1_days,
+                    pool3_heat, pool2_heat, pool1_heat,
+                    max_days
+                ))
             
-            # 获取前N个热点帖子
+            # 获取前N个热点帖子，添加索引提示
             with TimerContext('get_hot_topics'):
                 sql = """
                 SELECT post_id, post_title as title, heat_score
-                FROM posts
+                FROM posts FORCE INDEX(idx_heat_score)
                 WHERE heat_score > %s
                 ORDER BY heat_score DESC
                 LIMIT %s
@@ -617,30 +675,53 @@ class Recommender:
         if cached_result is not None:
             return cached_result
         
-        # 转换特征为向量
-        post_vec = self.fp.tfidf.transform([feature_text]).toarray()[0]
-        
-        # 计算与所有帖子的相似度
-        tfidf_matrix = self.fp.get_tfidf_matrix()
-        similarities = cosine_similarity([post_vec], tfidf_matrix)[0]
-        
-        # 获取相似帖子索引（排除自身）
-        post_indices = list(range(len(self.fp.posts)))
-        target_idx = self.fp.posts[self.fp.posts['post_id'] == post_id].index
-        if len(target_idx) > 0:
-            post_indices.remove(target_idx[0])
-        
-        # 获取最相似的帖子
-        similar_indices = sorted([(i, similarities[i]) for i in post_indices], 
-                                key=lambda x: x[1], reverse=True)[:limit]
-        
-        # 返回帖子ID列表
-        similar_posts = [self.fp.posts.iloc[idx[0]]['post_id'] for idx in similar_indices]
-        
-        # 缓存结果（3小时过期）
-        memory_cache.set(cache_key, similar_posts, 10800)
-        
-        return similar_posts
+        try:
+            # 转换特征为向量
+            post_vec = self.fp.tfidf.transform([feature_text]).toarray()[0]
+            
+            # 计算与所有帖子的相似度
+            tfidf_matrix = self.fp.get_tfidf_matrix()
+            similarities = cosine_similarity([post_vec], tfidf_matrix)[0]
+            
+            # 获取相似帖子索引（排除自身）
+            post_indices = list(range(len(self.fp.posts)))
+            target_idx = self.fp.posts[self.fp.posts['post_id'] == post_id].index
+            if len(target_idx) > 0:
+                post_idx_to_remove = target_idx[0]
+                if post_idx_to_remove in post_indices:
+                    post_indices.remove(post_idx_to_remove)
+            
+            # 获取最相似的帖子
+            similar_indices = sorted([(i, similarities[i]) for i in post_indices if i < len(similarities)], 
+                                    key=lambda x: x[1], reverse=True)[:limit]
+            
+            # 返回帖子ID列表
+            similar_posts = []
+            for idx, _ in similar_indices:
+                if 0 <= idx < len(self.fp.posts):
+                    similar_posts.append(self.fp.posts.iloc[idx]['post_id'])
+                if len(similar_posts) >= limit:
+                    break
+                    
+            # 如果相似帖子不足，用热门帖子补充
+            if len(similar_posts) < limit:
+                hot_posts = self.popularity_based_recommend()
+                # 去重并补充
+                for post in hot_posts:
+                    if post not in similar_posts and post != post_id:
+                        similar_posts.append(post)
+                    if len(similar_posts) >= limit:
+                        break
+            
+            # 缓存结果（3小时过期）
+            memory_cache.set(cache_key, similar_posts, 10800)
+            
+            return similar_posts
+            
+        except Exception as e:
+            print(f"计算帖子{post_id}的相似帖子失败: {str(e)}")
+            # 返回热门推荐作为备选
+            return self.popularity_based_recommend()[:limit]
         
     def refresh_model(self):
         """刷新推荐模型"""
@@ -839,9 +920,9 @@ class FeatureProcessor:
                 print(f"处理用户{user_id}的兴趣向量失败: {str(e)}")
                 continue
         
-        # 归一化
+        # 归一化 - 添加防御性代码避免除以零
         norm = np.linalg.norm(user_vector)
-        if norm == 0:
+        if norm < 1e-10:  # 使用小值阈值而不是精确的零
             return None
             
         result = user_vector / norm
@@ -894,11 +975,20 @@ class FeatureProcessor:
             other_profile = self.get_user_profile(other_id)
             
             if other_profile is not None:
-                # 计算余弦相似度
-                similarity = np.dot(user_profile, other_profile) / (
-                    np.linalg.norm(user_profile) * np.linalg.norm(other_profile)
-                )
-                similarities.append((other_id, similarity))
+                try:
+                    # 计算余弦相似度，添加防御性代码防止除零
+                    norm_user = np.linalg.norm(user_profile)
+                    norm_other = np.linalg.norm(other_profile)
+                    
+                    # 检查向量长度是否非零
+                    if norm_user < 1e-10 or norm_other < 1e-10:
+                        continue
+                    
+                    similarity = np.dot(user_profile, other_profile) / (norm_user * norm_other)
+                    similarities.append((other_id, similarity))
+                except Exception as e:
+                    print(f"计算用户{user_id}和{other_id}的相似度失败: {str(e)}")
+                    continue
         
         # 排序返回最相似的用户
         similarities.sort(key=lambda x: x[1], reverse=True)

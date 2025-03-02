@@ -102,6 +102,10 @@ def generate_hot_topics():
     print(f"[{datetime.now()}] 热点生成完成: {len(hot_topics)}个热点话题, 耗时{process_time}ms")
     return len(hot_topics)
 
+def execute_many(self, sql, args_list):
+    # 分批执行以提高性能
+    batch_size = 1000
+
 def main():
     """主函数"""
     parser = argparse.ArgumentParser(description='推荐系统迁移工具')

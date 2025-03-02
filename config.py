@@ -92,3 +92,13 @@ DATABASE_CONFIG = {
     'db_pool_size': 20                 # 数据库连接池大小
 }
 
+# 模型训练配置
+MODEL_TRAINING_CONFIG = {
+    'max_iterations': 100,        # 模型最大迭代次数
+    'convergence_threshold': 0.001,  # 收敛阈值
+    'learning_rate': 0.01,        # 学习率
+    'regularization': 0.1,        # 正则化参数
+    'train_test_split': 0.2,      # 训练/测试数据比例
+    'random_seed': 42             # 随机种子，确保结果可复现
+}
+
