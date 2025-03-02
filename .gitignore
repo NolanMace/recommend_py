@@ -11,7 +11,7 @@ logs/
 .recommend_cache/
 .pip_cache/
 pip_packages/
-wheels/
+# wheels/
 
 # 开发工具相关
 .ipynb_checkpoints/
