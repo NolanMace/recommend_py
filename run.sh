@@ -62,6 +62,10 @@ if [[ "$*" == *"--no-scheduler"* ]]; then
     RUN_ARGS="$RUN_ARGS --no-scheduler"
 fi
 
+if [[ "$*" == *"--run-tasks"* ]]; then
+    RUN_ARGS="$RUN_ARGS --run-tasks"
+fi
+
 if [[ "$*" == *"--no-log"* ]]; then
     echo -e "${YELLOW}参数: $RUN_ARGS${NC}"
     python main.py $RUN_ARGS

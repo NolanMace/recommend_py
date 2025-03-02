@@ -10,7 +10,7 @@ import sys
 import time
 from datetime import datetime
 
-from scheduler import setup_scheduler
+from scheduler import setup_scheduler, scheduled_task
 from database import get_db_pool
 
 # 全局退出标志
@@ -46,6 +46,24 @@ def handle_signal(signum, frame):
     print(f"\n[{datetime.now()}] 收到退出信号，正在安全退出...")
     should_exit = True
 
+def run_all_tasks():
+    """立即运行所有主要任务"""
+    print(f"[{datetime.now()}] 开始执行所有主要任务...")
+    
+    # 执行热门内容更新任务
+    print(f"[{datetime.now()}] 1/3 开始执行热门内容更新任务")
+    scheduled_task("热门内容更新", 15)
+    
+    # 执行用户兴趣模型更新任务
+    print(f"[{datetime.now()}] 2/3 开始执行用户兴趣模型更新任务")
+    scheduled_task("用户兴趣模型更新", 40)
+    
+    # 执行全量数据分析任务
+    print(f"[{datetime.now()}] 3/3 开始执行全量数据分析任务")
+    scheduled_task("全量数据分析", 120)
+    
+    print(f"[{datetime.now()}] 所有主要任务执行完成")
+
 def main():
     """主程序入口"""
     start_time = time.time()
@@ -57,6 +75,7 @@ def main():
     parser.add_argument('--debug', action='store_true', help='是否启用调试模式')
     parser.add_argument('--init-db', action='store_true', help='是否初始化数据库表结构(默认不初始化)')
     parser.add_argument('--no-scheduler', action='store_true', help='是否禁用调度任务服务')
+    parser.add_argument('--run-tasks', action='store_true', help='立即执行三个主要任务(热门内容更新、用户兴趣模型更新、全量数据分析)')
     args = parser.parse_args()
     
     print(f"[{datetime.now()}] 启动参数: {args}")
@@ -120,6 +139,13 @@ def main():
         sys.stdout.flush()
     else:
         print(f"[{datetime.now()}] 跳过数据库表结构初始化，如需初始化请使用 --init-db 参数")
+        sys.stdout.flush()
+    
+    # 如果指定了立即执行任务的参数，则执行所有主要任务
+    if args.run_tasks:
+        print(f"[{datetime.now()}] 检测到--run-tasks参数，准备立即执行所有主要任务...")
+        sys.stdout.flush()
+        run_all_tasks()
         sys.stdout.flush()
     
     # 启动定时任务线程

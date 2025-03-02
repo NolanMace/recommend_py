@@ -68,6 +68,8 @@ echo -e "${YELLOW}使用方法:${NC}"
 echo -e "1. 直接运行: ./run.sh"
 echo -e "2. 初始化数据库: ./run.sh --init-db"
 echo -e "3. 调试模式: ./run.sh --debug"
+echo -e "4. 执行测试任务: ./run.sh --run-tasks"
+echo -e "5. 禁用调度器: ./run.sh --no-scheduler"
 
 # 退出虚拟环境
 deactivate 
