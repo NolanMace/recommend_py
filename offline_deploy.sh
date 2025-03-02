@@ -17,7 +17,7 @@ echo -e "${BLUE}      推荐系统离线部署脚本                 ${NC}"
 echo -e "${BLUE}============================================${NC}"
 
 # 检查便携式Python是否存在
-PORTABLE_PYTHON="./deps/portable_python/python-3.9.12/bin/python"
+PORTABLE_PYTHON="/root/deps/portable_python/python-3.9.12/bin/python"
 if [ ! -f "$PORTABLE_PYTHON" ]; then
     echo -e "${RED}错误: 未找到便携式Python${NC}"
     echo -e "${RED}请确保已运行prepare_portable_python.sh脚本${NC}"
