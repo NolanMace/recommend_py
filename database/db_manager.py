@@ -6,7 +6,7 @@ from typing import Dict, List, Any, Optional, Set, Tuple
 import threading
 from datetime import datetime, timedelta
 
-from utils.config_manager import ConfigManager
+from config.config_manager import ConfigManager
 
 # 获取日志记录器
 logger = logging.getLogger('db_manager')
