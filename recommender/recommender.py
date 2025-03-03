@@ -38,48 +38,70 @@ class RecommenderConfig:
         return cls._instance
     
     def __init__(self):
-        with self._lock:
-            if self._initialized:
-                return
+        if getattr(self, '_initialized', False):
+            return
             
+        with self._lock:
+            self.logger = logging.getLogger("recommender_config")
             self.config_manager = get_config_manager()
-            self._load_config()
-            self.config_manager.add_listener(self._on_config_change)
-            self._initialized = True
+            self.logger.info("开始初始化推荐系统配置...")
+            
+            try:
+                self._load_config()
+                # 使用register_observer替代add_listener
+                self.config_manager.register_observer(self)
+                self._initialized = True
+                self.logger.info("推荐系统配置初始化完成")
+            except Exception as e:
+                self.logger.error(f"推荐系统配置初始化失败: {str(e)}")
+                raise
     
     def _load_config(self):
         """加载配置"""
-        recommender_config = self.config_manager.get('recommender', {})
-        
-        # TFIDF参数配置
-        self.tfidf_params = {
-            'max_features': recommender_config.get('tfidf_max_features', 5000),
-            'min_df': recommender_config.get('tfidf_min_df', 2),
-            'max_df': recommender_config.get('tfidf_max_df', 0.95),
-            'ngram_range': tuple(recommender_config.get('tfidf_ngram_range', (1, 2)))
-        }
-        
-        # 行为权重配置
-        self.behavior_weights = recommender_config.get('behavior_weights', {
-            'view': 1,
-            'click': 2,
-            'like': 3,
-            'collect': 4,
-            'comment': 4,
-            'comment_like': 2
-        })
-        
-        # 其他配置...
-        self.min_interaction_threshold = recommender_config.get('min_interaction_threshold', 5)
-        self.max_recommendations = recommender_config.get('max_recommendations', 100)
-        self.default_page_size = recommender_config.get('default_page_size', 20)
+        try:
+            self.logger.debug("开始加载推荐系统配置...")
+            recommender_config = self.config_manager.get('recommender', {})
+            
+            # TFIDF参数配置
+            self.tfidf_params = {
+                'max_features': recommender_config.get('tfidf_max_features', 5000),
+                'min_df': recommender_config.get('tfidf_min_df', 2),
+                'max_df': recommender_config.get('tfidf_max_df', 0.95),
+                'ngram_range': tuple(recommender_config.get('tfidf_ngram_range', (1, 2)))
+            }
+            self.logger.debug(f"已加载TFIDF参数配置: {self.tfidf_params}")
+            
+            # 行为权重配置
+            self.behavior_weights = recommender_config.get('behavior_weights', {
+                'view': 1,
+                'click': 2,
+                'like': 3,
+                'collect': 4,
+                'comment': 4,
+                'comment_like': 2
+            })
+            self.logger.debug(f"已加载行为权重配置: {self.behavior_weights}")
+            
+            # 其他配置...
+            self.min_interaction_threshold = recommender_config.get('min_interaction_threshold', 5)
+            self.max_recommendations = recommender_config.get('max_recommendations', 100)
+            self.default_page_size = recommender_config.get('default_page_size', 20)
+            
+            self.logger.info("推荐系统配置加载完成")
+        except Exception as e:
+            self.logger.error(f"加载推荐系统配置失败: {str(e)}")
+            raise
     
-    def _on_config_change(self, path: str, new_value: Any):
+    def config_updated(self, path: str, new_value: Any):
         """配置变更处理"""
         if path.startswith('recommender.'):
-            logger.info(f"检测到推荐系统配置变更: {path}")
+            self.logger.info(f"检测到推荐系统配置变更: {path}")
             with self._lock:
-                self._load_config()
+                try:
+                    self._load_config()
+                    self.logger.info("推荐系统配置已更新")
+                except Exception as e:
+                    self.logger.error(f"更新推荐系统配置失败: {str(e)}")
     
     @property
     def TFIDF_PARAMS(self) -> Dict:
@@ -326,20 +348,25 @@ class FeatureProcessor:
         return cls._instance
     
     def __init__(self):
+        if getattr(self, '_initialized', False):
+            return
+            
         with self._lock:
-            if getattr(self, '_initialized', False):
-                return
-                
-            self.logger = logging.getLogger("feature_processor")
-            self.config_manager = get_config_manager()
-            self.cache_manager = get_cache_manager()
-            
-            # 获取配置
-            self.config = self.config_manager.get('recommender', {})
-            
-            # 初始化TF-IDF向量器
             try:
+                self.logger = logging.getLogger("feature_processor")
+                self.logger.info("开始初始化特征处理器...")
+                
+                self.config_manager = get_config_manager()
+                self.cache_manager = get_cache_manager()
+                
+                # 获取配置
+                self.config = self.config_manager.get('recommender', {})
+                
+                # 初始化推荐配置
                 self.recommender_config = RecommenderConfig()
+                
+                # 初始化TF-IDF向量器
+                self.logger.debug("初始化TF-IDF向量器...")
                 self.tfidf = TfidfVectorizer(**self.recommender_config.TFIDF_PARAMS)
                 self.feature_names = None
                 self.posts = None
@@ -358,15 +385,19 @@ class FeatureProcessor:
     
     def load_data(self):
         """加载帖子数据"""
+        self.logger.info("开始加载帖子数据...")
         try:
             with self._lock:
                 # 先尝试从缓存读取
+                self.logger.debug("尝试从缓存读取帖子数据...")
                 cached_posts = disk_cache.get('posts_data')
                 if cached_posts is not None:
                     self.posts = cached_posts
+                    self.logger.info(f"从缓存加载了 {len(self.posts)} 条帖子数据")
                     return
                 
                 # 从posts表加载帖子数据
+                self.logger.debug("从数据库加载帖子数据...")
                 sql = """
                 SELECT p.post_id, p.post_title as title, p.hashtags as tags,
                        COALESCE(GROUP_CONCAT(DISTINCT c.content SEPARATOR ' '), '') as content
@@ -384,23 +415,30 @@ class FeatureProcessor:
                 self.posts = pd.DataFrame(results)
                 self.posts['tags'] = self.posts['tags'].fillna('').str.replace(',', ' ')
                 
-                # 合并标签和评论内容作为特征（评论内容权重较低）
+                # 合并标签和评论内容作为特征
+                self.logger.debug("处理帖子特征...")
                 self.posts['features'] = self.posts.apply(
                     lambda x: x['tags'] + ' ' + ' '.join(x['content'].split()[:50]) 
                     if x['content'] else x['tags'], axis=1
                 )
                 
                 # 缓存结果
+                self.logger.debug("缓存帖子数据...")
                 disk_cache.set('posts_data', self.posts)
+                
+                self.logger.info(f"成功加载并处理了 {len(self.posts)} 条帖子数据")
                 
                 # 如果已有模型就加载，否则训练
                 try:
+                    self.logger.debug("尝试加载已有的TF-IDF模型...")
                     self.tfidf = joblib.load('tfidf_model.pkl')
                     self.feature_names = self.tfidf.get_feature_names_out()
+                    self.logger.info("成功加载已有的TF-IDF模型")
                     
                     # 尝试加载SVD模型
                     try:
                         self.svd_model = joblib.load('svd_model.pkl')
+                        self.logger.info("成功加载SVD模型")
                     except Exception as e:
                         self.logger.warning(f"加载SVD模型失败: {str(e)}")
                 except Exception as e:
@@ -413,13 +451,16 @@ class FeatureProcessor:
     
     def fit_model(self):
         """训练TF-IDF模型"""
+        self.logger.info("开始训练TF-IDF模型...")
         try:
             with self._lock:
                 if self.posts is None or len(self.posts) == 0:
+                    self.logger.debug("没有帖子数据，尝试加载...")
                     self.load_data()
                 
                 if not self.posts.empty:
                     # 训练TF-IDF
+                    self.logger.debug("开始训练TF-IDF向量器...")
                     feature_texts = self.posts['features'].fillna('')
                     self.tfidf = TfidfVectorizer(**self.recommender_config.TFIDF_PARAMS)
                     self.tfidf_matrix = self.tfidf.fit_transform(feature_texts)
@@ -427,6 +468,7 @@ class FeatureProcessor:
                     
                     # 保存模型
                     try:
+                        self.logger.debug("保存TF-IDF模型...")
                         joblib.dump(self.tfidf, 'tfidf_model.pkl')
                         self.logger.info("TF-IDF模型保存成功")
                     except Exception as e:
@@ -435,6 +477,7 @@ class FeatureProcessor:
                     # 训练SVD降维
                     if self.tfidf_matrix.shape[1] > 100:
                         try:
+                            self.logger.debug("开始训练SVD模型...")
                             n_components = min(100, self.tfidf_matrix.shape[1] - 1)
                             self.svd_model = TruncatedSVD(n_components=n_components)
                             self.svd_features = self.svd_model.fit_transform(self.tfidf_matrix)
