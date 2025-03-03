@@ -109,8 +109,27 @@ class TaskScheduler:
         # 注册为配置观察者
         self.config_manager.register_observer(self)
         
+        # 初始化调度任务
+        self._init_tasks()
+        
         self._initialized = True
         self.logger.info("调度器初始化完成")
+    
+    def _init_tasks(self):
+        """初始化调度任务"""
+        try:
+            # 获取热点话题更新间隔
+            update_interval = self.hot_topics_config.get('update_interval', 300)  # 默认5分钟
+            
+            # 注册热点话题更新任务
+            schedule.every(update_interval).seconds.do(self.generate_hot_topics)
+            self.logger.info(f"已注册热点话题更新任务，更新间隔：{update_interval}秒")
+            
+            # 立即执行一次热点话题生成
+            self.generate_hot_topics()
+            
+        except Exception as e:
+            self.logger.error(f"初始化调度任务失败: {str(e)}")
     
     def get_recommender(self):
         """懒加载获取推荐器实例"""
@@ -154,17 +173,37 @@ class TaskScheduler:
         self.logger.info("开始生成热点话题...")
         try:
             rec = self.get_recommender()
-            # 使用 max_topics 而不是 count
-            max_topics = self.hot_topics_config.get('max_topics', 50)
-            new_hot_topics = rec.generate_hot_topics()
             
-            # 更新全局热点列表
-            with self.hot_topics_lock:
-                self.hot_topics = new_hot_topics[:max_topics] if new_hot_topics else []
+            # 获取配置参数
+            max_topics = self.hot_topics_config.get('max_topics', 50)
+            min_score = self.hot_topics_config.get('min_score', 100)
+            time_window_days = self.hot_topics_config.get('time_window_days', 7)
+            
+            # 设置时间窗口
+            time_window = timedelta(days=time_window_days)
+            
+            # 生成热点话题
+            new_hot_topics = rec.generate_hot_topics(time_window=time_window)
+            
+            if new_hot_topics:
+                # 过滤掉低于最小分数的话题
+                filtered_topics = [
+                    topic for topic in new_hot_topics 
+                    if topic.get('score', 0) >= min_score
+                ]
                 
-            self.logger.info(f"成功生成{len(self.hot_topics)}个热点话题")
+                # 限制数量并更新全局热点列表
+                with self.hot_topics_lock:
+                    self.hot_topics = filtered_topics[:max_topics]
+                    
+                self.logger.info(f"成功生成{len(self.hot_topics)}个热点话题")
+            else:
+                self.logger.warning("未生成任何热点话题")
+                
         except Exception as e:
             self.logger.error(f"生成热点话题失败: {str(e)}")
+            import traceback
+            self.logger.error(f"错误详情: {traceback.format_exc()}")
     
     def get_current_hot_topics(self):
         """获取当前热点话题列表"""

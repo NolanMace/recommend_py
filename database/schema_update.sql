@@ -541,3 +541,28 @@ CREATE TABLE IF NOT EXISTS post_views (
     INDEX idx_user_time (user_id, view_time) COMMENT '用户时间索引',
     INDEX idx_created_at (created_at) COMMENT '创建时间索引'
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='帖子浏览记录表';
+
+-- 帖子表
+CREATE TABLE IF NOT EXISTS posts (
+    id BIGINT AUTO_INCREMENT PRIMARY KEY COMMENT '帖子ID',
+    title VARCHAR(255) NOT NULL COMMENT '帖子标题',
+    content TEXT NOT NULL COMMENT '帖子内容',
+    user_id BIGINT NOT NULL COMMENT '作者ID',
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
+    updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
+    view_count INT NOT NULL DEFAULT 0 COMMENT '浏览次数',
+    like_count INT NOT NULL DEFAULT 0 COMMENT '点赞次数',
+    collect_count INT NOT NULL DEFAULT 0 COMMENT '收藏次数',
+    comment_count INT NOT NULL DEFAULT 0 COMMENT '评论次数',
+    exposure_pool INT DEFAULT NULL COMMENT '曝光池级别',
+    heat_score INT DEFAULT 0 COMMENT '热度分数',
+    exposure_count INT DEFAULT 0 COMMENT '曝光次数',
+    status TINYINT NOT NULL DEFAULT 1 COMMENT '状态：0-删除，1-正常',
+    
+    -- 索引
+    INDEX idx_user_id (user_id) COMMENT '作者索引',
+    INDEX idx_created_at (created_at) COMMENT '创建时间索引',
+    INDEX idx_heat_score (heat_score) COMMENT '热度分数索引',
+    INDEX idx_exposure_pool (exposure_pool) COMMENT '曝光池索引',
+    FULLTEXT INDEX ft_title_content (title, content) COMMENT '全文检索索引'
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='帖子表';

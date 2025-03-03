@@ -10,6 +10,21 @@ from datetime import timedelta
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 LOG_DIR = os.path.join(BASE_DIR, 'logs')
 
+# 热点话题配置
+HOT_TOPICS_CONFIG = {
+    'max_topics': 50,  # 最大热点话题数量
+    'min_score': 100,  # 最小热度分数
+    'time_window_days': 7,  # 时间窗口（天）
+    'update_interval': 300,  # 更新间隔（秒）
+    'cache_ttl': 300,  # 缓存时间（秒）
+    'weights': {
+        'view': 1,      # 浏览权重
+        'like': 3,      # 点赞权重
+        'collect': 5,   # 收藏权重
+        'comment': 2    # 评论权重
+    }
+}
+
 # 数据库配置
 MYSQL_CONFIG = {
     'host': 'rm-bp1w3lxy9t0790m4j.mysql.rds.aliyuncs.com',      # 数据库地址

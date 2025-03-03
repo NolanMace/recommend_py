@@ -342,24 +342,19 @@ class Recommender:
                 p.title,
                 p.content,
                 p.created_at,
-                COUNT(DISTINCT v.user_id) as view_count,
-                COUNT(DISTINCT l.user_id) as like_count,
-                COUNT(DISTINCT c.id) as comment_count
+                p.view_count,
+                p.like_count,
+                p.comment_count,
+                p.heat_score
             FROM posts p
-            LEFT JOIN post_views v ON p.id = v.post_id AND v.created_at BETWEEN %s AND %s
-            LEFT JOIN post_likes l ON p.id = l.post_id AND l.created_at BETWEEN %s AND %s
-            LEFT JOIN comments c ON p.id = c.post_id AND c.created_at BETWEEN %s AND %s
             WHERE p.created_at BETWEEN %s AND %s
-            GROUP BY p.id
-            HAVING (view_count + like_count * 2 + comment_count * 3) >= %s
-            ORDER BY (view_count + like_count * 2 + comment_count * 3) DESC
+                AND p.status = 1
+            HAVING p.heat_score >= %s
+            ORDER BY p.heat_score DESC
             LIMIT %s
             """
             
             params = (
-                start_time, end_time,  # views
-                start_time, end_time,  # likes
-                start_time, end_time,  # comments
                 start_time, end_time,  # posts
                 HOT_TOPICS_CONFIG['min_score'],
                 HOT_TOPICS_CONFIG['max_topics']
@@ -370,17 +365,11 @@ class Recommender:
             # 计算热度分数并格式化结果
             topics = []
             for post in hot_posts:
-                score = (
-                    post['view_count'] + 
-                    post['like_count'] * 2 + 
-                    post['comment_count'] * 3
-                )
-                
                 topics.append({
                     'id': post['id'],
                     'title': post['title'],
                     'content': post['content'][:200],  # 截取前200个字符
-                    'score': score,
+                    'score': post['heat_score'],
                     'view_count': post['view_count'],
                     'like_count': post['like_count'],
                     'comment_count': post['comment_count'],
