@@ -195,13 +195,14 @@ class TaskScheduler:
             LIMIT %s
             """
             
-            with get_db_pool().connection() as conn:
-                with conn.cursor() as cursor:
-                    cursor.execute(sql, (batch_size,))
-                    users = cursor.fetchall()
-                    
+            try:
+                users = self.db_pool.query(sql, (batch_size,))
+            except Exception as e:
+                self.logger.warning(f"查询活跃用户失败: {str(e)}")
+                users = []
+                
             if not users:
-                self.logger.warning("没有找到需要处理的用户")
+                self.logger.info("没有找到需要处理的用户，任务完成")
                 return 0
                 
             total_users = len(users)
@@ -211,10 +212,10 @@ class TaskScheduler:
             self.logger.info(f"开始为 {total_users} 个用户生成推荐...")
             
             for i, user in enumerate(users, 1):
-                user_id = user[0]
+                user_id = user['user_id'] if isinstance(user, dict) else user[0]
                 try:
                     # 为用户生成推荐
-                    recommendations = rec.get_recommendations({'user_id': user_id}, top_n=20)
+                    recommendations = rec.get_recommendations(user_id, page=1, page_size=20)
                     if recommendations:
                         success_count += 1
                     

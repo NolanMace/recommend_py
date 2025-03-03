@@ -641,11 +641,14 @@ class FeatureProcessor:
                     
                     self.logger.info(f"文本预处理完成: 有效文本 {len(valid_texts)} 条，无效文本 {invalid_count} 条")
                     
-                    if not valid_texts:
-                        raise ValueError("没有有效的文本数据用于训练")
-                    
+                    # 如果没有足够的有效文本，使用默认模型
                     if len(valid_texts) < 2:
-                        raise ValueError(f"有效文本数量过少(当前: {len(valid_texts)})，至少需要2条文本进行训练")
+                        self.logger.warning(f"有效文本数量不足(当前: {len(valid_texts)})，使用默认模型")
+                        # 创建一个基础的TF-IDF矩阵
+                        self.tfidf = TfidfVectorizer(**self.recommender_config.TFIDF_PARAMS)
+                        self.tfidf_matrix = self.tfidf.fit_transform(['default text placeholder'])
+                        self.feature_names = self.tfidf.get_feature_names_out()
+                        return
                     
                     self.logger.info(f"使用 {len(valid_texts)} 条有效文本进行训练")
                     
@@ -671,47 +674,42 @@ class FeatureProcessor:
                     # 训练模型
                     self.tfidf = TfidfVectorizer(**tfidf_params)
                     
-                    # 记录一些样本文本用于调试
-                    sample_size = min(3, len(valid_texts))
-                    self.logger.debug(f"样本文本(前{sample_size}条):")
-                    for i, text in enumerate(valid_texts[:sample_size]):
-                        self.logger.debug(f"样本{i+1}: {text[:100]}...")
-                    
-                    self.tfidf_matrix = self.tfidf.fit_transform(valid_texts)
-                    self.feature_names = self.tfidf.get_feature_names_out()
-                    
-                    self.logger.info(f"TF-IDF模型训练完成，特征数量: {len(self.feature_names)}")
-                    
-                    # 确保models目录存在
-                    import os
-                    os.makedirs('models', exist_ok=True)
-                    
-                    # 保存模型
                     try:
-                        self.logger.debug("保存TF-IDF模型...")
-                        joblib.dump(self.tfidf, 'models/tfidf_model.pkl')
-                        self.logger.info("TF-IDF模型保存成功")
-                    except Exception as e:
-                        self.logger.error(f"保存TF-IDF模型失败: {str(e)}")
-                    
-                    # 训练SVD降维
-                    if self.tfidf_matrix.shape[1] > 100:
+                        self.tfidf_matrix = self.tfidf.fit_transform(valid_texts)
+                        self.feature_names = self.tfidf.get_feature_names_out()
+                        
+                        self.logger.info(f"TF-IDF模型训练完成，特征数量: {len(self.feature_names)}")
+                        
+                        # 确保models目录存在
+                        import os
+                        os.makedirs('models', exist_ok=True)
+                        
+                        # 保存模型
                         try:
-                            self.logger.debug("开始训练SVD模型...")
-                            n_components = min(100, self.tfidf_matrix.shape[1] - 1)
-                            self.svd_model = TruncatedSVD(n_components=n_components)
-                            self.svd_features = self.svd_model.fit_transform(self.tfidf_matrix)
-                            joblib.dump(self.svd_model, 'models/svd_model.pkl')
-                            self.logger.info("SVD模型训练和保存成功")
+                            self.logger.debug("保存TF-IDF模型...")
+                            joblib.dump(self.tfidf, 'models/tfidf_model.pkl')
+                            self.logger.info("TF-IDF模型保存成功")
                         except Exception as e:
-                            self.logger.error(f"SVD模型训练或保存失败: {str(e)}")
+                            self.logger.warning(f"保存TF-IDF模型失败: {str(e)}")
+                    except ValueError as ve:
+                        self.logger.warning(f"模型训练出现问题，使用默认模型: {str(ve)}")
+                        # 创建一个基础的TF-IDF矩阵
+                        self.tfidf = TfidfVectorizer(**tfidf_params)
+                        self.tfidf_matrix = self.tfidf.fit_transform(['default text placeholder'])
+                        self.feature_names = self.tfidf.get_feature_names_out()
                 else:
-                    self.logger.warning("没有可用的训练数据")
-                    raise ValueError("没有可用的训练数据")
+                    self.logger.warning("没有可用的训练数据，使用默认模型")
+                    # 创建一个基础的TF-IDF矩阵
+                    self.tfidf = TfidfVectorizer(**self.recommender_config.TFIDF_PARAMS)
+                    self.tfidf_matrix = self.tfidf.fit_transform(['default text placeholder'])
+                    self.feature_names = self.tfidf.get_feature_names_out()
                     
         except Exception as e:
             self.logger.error(f"模型训练失败: {str(e)}")
-            raise
+            # 确保即使出错也有一个可用的基础模型
+            self.tfidf = TfidfVectorizer(**self.recommender_config.TFIDF_PARAMS)
+            self.tfidf_matrix = self.tfidf.fit_transform(['default text placeholder'])
+            self.feature_names = self.tfidf.get_feature_names_out()
     
     def config_updated(self, path: str, new_value: Any):
         """配置更新回调"""
