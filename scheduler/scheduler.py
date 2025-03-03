@@ -174,11 +174,65 @@ class TaskScheduler:
         self.logger.info("开始批量生成用户推荐...")
         try:
             rec = self.get_recommender()
-            batch_size = self.database_config['batch_size']
-            success_count = rec.batch_generate_recommendations(batch_size)
-            self.logger.info(f"成功为{success_count}/{batch_size}个用户生成推荐")
+            # 从配置中获取batch_size，如果没有配置则使用默认值1000
+            batch_size = self.config.get('batch_size', 1000)
+            self.logger.info(f"使用批处理大小: {batch_size}")
+            
+            # 获取需要处理的用户列表
+            sql = """
+            SELECT DISTINCT user_id 
+            FROM (
+                SELECT user_id FROM user_views 
+                WHERE created_at > DATE_SUB(NOW(), INTERVAL 7 DAY)
+                UNION
+                SELECT user_id FROM post_likes
+                WHERE created_at > DATE_SUB(NOW(), INTERVAL 7 DAY)
+                UNION
+                SELECT user_id FROM post_collects
+                WHERE created_at > DATE_SUB(NOW(), INTERVAL 7 DAY)
+            ) as active_users
+            ORDER BY user_id
+            LIMIT %s
+            """
+            
+            with get_db_pool().connection() as conn:
+                with conn.cursor() as cursor:
+                    cursor.execute(sql, (batch_size,))
+                    users = cursor.fetchall()
+                    
+            if not users:
+                self.logger.warning("没有找到需要处理的用户")
+                return 0
+                
+            total_users = len(users)
+            success_count = 0
+            error_count = 0
+            
+            self.logger.info(f"开始为 {total_users} 个用户生成推荐...")
+            
+            for i, user in enumerate(users, 1):
+                user_id = user[0]
+                try:
+                    # 为用户生成推荐
+                    recommendations = rec.get_recommendations({'user_id': user_id}, top_n=20)
+                    if recommendations:
+                        success_count += 1
+                    
+                    # 每处理100个用户输出一次进度
+                    if i % 100 == 0:
+                        self.logger.info(f"进度: {i}/{total_users} ({i/total_users*100:.1f}%)")
+                        
+                except Exception as e:
+                    error_count += 1
+                    self.logger.error(f"为用户 {user_id} 生成推荐失败: {str(e)}")
+                    continue
+            
+            self.logger.info(f"批量推荐生成完成: 成功 {success_count}/{total_users} 个用户，失败 {error_count} 个")
+            return success_count
+            
         except Exception as e:
             self.logger.error(f"批量生成推荐失败: {str(e)}")
+            return 0
     
     def cleanup_expired_data(self):
         """清理过期数据"""

@@ -624,15 +624,28 @@ class FeatureProcessor:
                     
                     # 文本清理和验证
                     valid_texts = []
+                    invalid_count = 0
                     for text in feature_texts:
                         # 转换为字符串并清理
                         text = str(text).strip()
                         # 移除过短的文本
                         if len(text) >= 2:  # 至少2个字符
-                            valid_texts.append(text)
+                            # 检查是否只包含停用词或无意义字符
+                            words = text.split()
+                            if len(words) > 0:
+                                valid_texts.append(text)
+                            else:
+                                invalid_count += 1
+                        else:
+                            invalid_count += 1
+                    
+                    self.logger.info(f"文本预处理完成: 有效文本 {len(valid_texts)} 条，无效文本 {invalid_count} 条")
                     
                     if not valid_texts:
                         raise ValueError("没有有效的文本数据用于训练")
+                    
+                    if len(valid_texts) < 2:
+                        raise ValueError(f"有效文本数量过少(当前: {len(valid_texts)})，至少需要2条文本进行训练")
                     
                     self.logger.info(f"使用 {len(valid_texts)} 条有效文本进行训练")
                     
@@ -642,7 +655,7 @@ class FeatureProcessor:
                         'min_df': 1,  # 词必须至少出现1次
                         'max_df': 0.95,  # 出现在超过95%文档中的词会被移除
                         'ngram_range': (1, 2),  # 使用单个词和双词组合
-                        'stop_words': None,  # 不使用停用词
+                        'stop_words': None,  # 不使用停用词，因为可能有中文内容
                         'strip_accents': 'unicode',
                         'lowercase': True,
                         'analyzer': 'word',
@@ -657,6 +670,13 @@ class FeatureProcessor:
                     
                     # 训练模型
                     self.tfidf = TfidfVectorizer(**tfidf_params)
+                    
+                    # 记录一些样本文本用于调试
+                    sample_size = min(3, len(valid_texts))
+                    self.logger.debug(f"样本文本(前{sample_size}条):")
+                    for i, text in enumerate(valid_texts[:sample_size]):
+                        self.logger.debug(f"样本{i+1}: {text[:100]}...")
+                    
                     self.tfidf_matrix = self.tfidf.fit_transform(valid_texts)
                     self.feature_names = self.tfidf.get_feature_names_out()
                     
@@ -687,6 +707,7 @@ class FeatureProcessor:
                             self.logger.error(f"SVD模型训练或保存失败: {str(e)}")
                 else:
                     self.logger.warning("没有可用的训练数据")
+                    raise ValueError("没有可用的训练数据")
                     
         except Exception as e:
             self.logger.error(f"模型训练失败: {str(e)}")
