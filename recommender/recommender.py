@@ -15,7 +15,6 @@ from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.metrics.pairwise import cosine_similarity
 from sklearn.decomposition import TruncatedSVD
 from database import get_db_pool
-from config import RECOMMEND_CONFIG, TFIDF_PARAMS, BEHAVIOR_WEIGHTS, EXPOSURE_CONFIG, DATABASE_CONFIG, HOT_TOPICS_CONFIG
 from cache import memory_cache, disk_cache, cached_get, cache_result, TimerContext
 from monitor import track_performance, performance_collector
 import logging
@@ -24,17 +23,88 @@ from config.config_manager import get_config_manager
 from database.database import get_db_manager
 from cache.cache_manager import get_cache_manager
 
+logger = logging.getLogger(__name__)
+
+class RecommenderConfig:
+    """推荐系统配置管理"""
+    _instance = None
+    _lock = threading.Lock()
+    
+    def __new__(cls):
+        if cls._instance is None:
+            with cls._lock:
+                if cls._instance is None:
+                    cls._instance = super(RecommenderConfig, cls).__new__(cls)
+                    cls._instance._initialized = False
+        return cls._instance
+    
+    def __init__(self):
+        with self._lock:
+            if self._initialized:
+                return
+            
+            self.config_manager = get_config_manager()
+            self._load_config()
+            self.config_manager.add_listener(self._on_config_change)
+            self._initialized = True
+    
+    def _load_config(self):
+        """加载配置"""
+        recommender_config = self.config_manager.get('recommender', {})
+        
+        # TFIDF参数配置
+        self.tfidf_params = {
+            'max_features': recommender_config.get('tfidf_max_features', 5000),
+            'min_df': recommender_config.get('tfidf_min_df', 2),
+            'max_df': recommender_config.get('tfidf_max_df', 0.95),
+            'ngram_range': tuple(recommender_config.get('tfidf_ngram_range', (1, 2)))
+        }
+        
+        # 行为权重配置
+        self.behavior_weights = recommender_config.get('behavior_weights', {
+            'view': 1,
+            'click': 2,
+            'like': 3,
+            'collect': 4,
+            'comment': 4,
+            'comment_like': 2
+        })
+        
+        # 其他配置...
+        self.min_interaction_threshold = recommender_config.get('min_interaction_threshold', 5)
+        self.max_recommendations = recommender_config.get('max_recommendations', 100)
+        self.default_page_size = recommender_config.get('default_page_size', 20)
+    
+    def _on_config_change(self, path: str, new_value: Any):
+        """配置变更处理"""
+        if path.startswith('recommender.'):
+            logger.info(f"检测到推荐系统配置变更: {path}")
+            with self._lock:
+                self._load_config()
+    
+    @property
+    def TFIDF_PARAMS(self) -> Dict:
+        return self.tfidf_params
+    
+    @property
+    def BEHAVIOR_WEIGHTS(self) -> Dict:
+        return self.behavior_weights
+
+# 获取配置实例
+config = RecommenderConfig()
+
 # 初始化数据库连接池
 db_pool = get_db_pool()
 
-# 如果BEHAVIOR_WEIGHTS中没有评论相关的行为权重，在这里添加默认值
-if 'comment' not in BEHAVIOR_WEIGHTS:
-    BEHAVIOR_WEIGHTS['comment'] = 4  # 评论行为权重设为4，比点赞高
-if 'comment_like' not in BEHAVIOR_WEIGHTS:
-    BEHAVIOR_WEIGHTS['comment_like'] = 2  # 评论点赞权重设为2，与点赞相同
+# 定义热点话题配置
+HOT_TOPICS_CONFIG = {
+    'max_topics': config.config_manager.get('hot_topics_max', 50),
+    'min_score': config.config_manager.get('hot_topics_min_score', 0.1),
+    'time_window': timedelta(days=config.config_manager.get('hot_topics_window_days', 7))
+}
 
 # 并行处理的工作线程数
-MAX_WORKERS = DATABASE_CONFIG.get('max_workers', 4)
+MAX_WORKERS = config.config_manager.get('max_workers', 4)
 
 class Recommender:
     """推荐系统核心类
@@ -43,31 +113,35 @@ class Recommender:
     """
     
     _instance = None
+    _lock = threading.Lock()
     
     def __new__(cls):
         if cls._instance is None:
-            cls._instance = super(Recommender, cls).__new__(cls)
-            cls._instance._initialized = False
+            with cls._lock:
+                if cls._instance is None:
+                    cls._instance = super(Recommender, cls).__new__(cls)
+                    cls._instance._initialized = False
         return cls._instance
     
     def __init__(self):
-        if self._initialized:
-            return
+        with self._lock:
+            if self._initialized:
+                return
+                
+            self.logger = logging.getLogger("recommender")
+            self.config_manager = get_config_manager()
+            self.db_manager = get_db_manager()
+            self.cache_manager = get_cache_manager()
             
-        self.logger = logging.getLogger("recommender")
-        self.config_manager = get_config_manager()
-        self.db_manager = get_db_manager()
-        self.cache_manager = get_cache_manager()
-        
-        # 获取配置
-        self.config = self.config_manager.get('recommender')
-        self.exposure_config = self.config_manager.get('exposure')
-        
-        # 注册为配置观察者
-        self.config_manager.register_observer(self)
-        
-        self._initialized = True
-        self.logger.info("推荐器初始化完成")
+            # 获取配置
+            self.config = self.config_manager.get('recommender', {})
+            self.exposure_config = self.config_manager.get('exposure', {})
+            
+            # 注册为配置观察者
+            self.config_manager.register_observer(self)
+            
+            self._initialized = True
+            self.logger.info("推荐器初始化完成")
     
     def config_updated(self, path: str, new_value: Any):
         """配置更新回调"""
@@ -222,93 +296,182 @@ def get_recommender() -> Recommender:
     return _recommender
 
 class FeatureProcessor:
+    """特征处理器
+    
+    负责处理文本特征和用户画像生成
+    """
+    
+    _instance = None
+    _lock = threading.Lock()
+    
+    def __new__(cls):
+        if cls._instance is None:
+            with cls._lock:
+                if cls._instance is None:
+                    cls._instance = super(FeatureProcessor, cls).__new__(cls)
+                    cls._instance._initialized = False
+        return cls._instance
+    
     def __init__(self):
-        self.tfidf = TfidfVectorizer(**TFIDF_PARAMS)
-        self.feature_names = None
-        self.posts = None
-        self.tfidf_matrix = None
-        self.svd_model = None
-        self.svd_features = None
+        with self._lock:
+            if getattr(self, '_initialized', False):
+                return
+                
+            self.logger = logging.getLogger("feature_processor")
+            self.config_manager = get_config_manager()
+            self.cache_manager = get_cache_manager()
+            
+            # 获取配置
+            self.config = self.config_manager.get('recommender', {})
+            
+            # 初始化TF-IDF向量器
+            try:
+                self.tfidf = TfidfVectorizer(**config.TFIDF_PARAMS)
+                self.feature_names = None
+                self.posts = None
+                self.tfidf_matrix = None
+                self.svd_model = None
+                self.svd_features = None
+                
+                # 注册为配置观察者
+                self.config_manager.register_observer(self)
+                
+                self._initialized = True
+                self.logger.info("特征处理器初始化完成")
+            except Exception as e:
+                self.logger.error(f"特征处理器初始化失败: {str(e)}")
+                raise
     
     def load_data(self):
         """加载帖子数据"""
-        # 先尝试从缓存读取
-        cached_posts = disk_cache.get('posts_data')
-        if cached_posts:
-            self.posts = cached_posts
-        else:
-            # 从posts表加载帖子数据，使用hashtags作为标签，同时加载评论内容摘要
-            sql = """
-            SELECT p.post_id, p.post_title as title, p.hashtags as tags,
-                   COALESCE(GROUP_CONCAT(DISTINCT c.content SEPARATOR ' '), '') as content
-            FROM posts p
-            LEFT JOIN comments c ON p.post_id = c.post_id
-            GROUP BY p.post_id, p.post_title, p.hashtags
-            """
-            results = db_pool.query(sql)
-            
-            # 转换结果为DataFrame
-            self.posts = pd.DataFrame(results)
-            self.posts['tags'] = self.posts['tags'].fillna('').str.replace(',', ' ')
-            
-            # 合并标签和评论内容作为特征（评论内容权重较低）
-            self.posts['features'] = self.posts.apply(
-                lambda x: x['tags'] + ' ' + ' '.join(x['content'].split()[:50]) 
-                if x['content'] else x['tags'], axis=1
-            )
-            
-            # 缓存结果
-            disk_cache.set('posts_data', self.posts)
-        
-        # 如果已有模型就加载，否则训练
         try:
-            self.tfidf = joblib.load('tfidf_model.pkl')
-            self.feature_names = self.tfidf.get_feature_names_out()
-            
-            # 尝试加载SVD模型
-            try:
-                self.svd_model = joblib.load('svd_model.pkl')
-            except:
-                pass
+            with self._lock:
+                # 先尝试从缓存读取
+                cached_posts = disk_cache.get('posts_data')
+                if cached_posts is not None:
+                    self.posts = cached_posts
+                    return
                 
-        except:
-            self.fit_model()
+                # 从posts表加载帖子数据
+                sql = """
+                SELECT p.post_id, p.post_title as title, p.hashtags as tags,
+                       COALESCE(GROUP_CONCAT(DISTINCT c.content SEPARATOR ' '), '') as content
+                FROM posts p
+                LEFT JOIN comments c ON p.post_id = c.post_id
+                GROUP BY p.post_id, p.post_title, p.hashtags
+                """
+                
+                results = db_pool.query(sql)
+                if not results:
+                    self.logger.warning("没有找到任何帖子数据")
+                    return
+                
+                # 转换结果为DataFrame
+                self.posts = pd.DataFrame(results)
+                self.posts['tags'] = self.posts['tags'].fillna('').str.replace(',', ' ')
+                
+                # 合并标签和评论内容作为特征（评论内容权重较低）
+                self.posts['features'] = self.posts.apply(
+                    lambda x: x['tags'] + ' ' + ' '.join(x['content'].split()[:50]) 
+                    if x['content'] else x['tags'], axis=1
+                )
+                
+                # 缓存结果
+                disk_cache.set('posts_data', self.posts)
+                
+                # 如果已有模型就加载，否则训练
+                try:
+                    self.tfidf = joblib.load('tfidf_model.pkl')
+                    self.feature_names = self.tfidf.get_feature_names_out()
+                    
+                    # 尝试加载SVD模型
+                    try:
+                        self.svd_model = joblib.load('svd_model.pkl')
+                    except Exception as e:
+                        self.logger.warning(f"加载SVD模型失败: {str(e)}")
+                except Exception as e:
+                    self.logger.info(f"加载TF-IDF模型失败，将重新训练: {str(e)}")
+                    self.fit_model()
+                    
+        except Exception as e:
+            self.logger.error(f"加载帖子数据失败: {str(e)}")
+            raise
     
     def fit_model(self):
         """训练TF-IDF模型"""
-        if self.posts is None or len(self.posts) == 0:
-            self.load_data()
-        
-        if len(self.posts) > 0:
-            # 训练TF-IDF
-            feature_texts = self.posts['features'].fillna('')
-            self.tfidf = TfidfVectorizer(**TFIDF_PARAMS)
-            self.tfidf_matrix = self.tfidf.fit_transform(feature_texts)
-            self.feature_names = self.tfidf.get_feature_names_out()
-            
-            # 保存模型
-            joblib.dump(self.tfidf, 'tfidf_model.pkl')
-            
-            # 训练SVD降维
-            if self.tfidf_matrix.shape[1] > 100:
-                n_components = min(100, self.tfidf_matrix.shape[1] - 1)
-                self.svd_model = TruncatedSVD(n_components=n_components)
-                self.svd_features = self.svd_model.fit_transform(self.tfidf_matrix)
-                joblib.dump(self.svd_model, 'svd_model.pkl')
+        try:
+            with self._lock:
+                if self.posts is None or len(self.posts) == 0:
+                    self.load_data()
+                
+                if not self.posts.empty:
+                    # 训练TF-IDF
+                    feature_texts = self.posts['features'].fillna('')
+                    self.tfidf = TfidfVectorizer(**config.TFIDF_PARAMS)
+                    self.tfidf_matrix = self.tfidf.fit_transform(feature_texts)
+                    self.feature_names = self.tfidf.get_feature_names_out()
+                    
+                    # 保存模型
+                    try:
+                        joblib.dump(self.tfidf, 'tfidf_model.pkl')
+                        self.logger.info("TF-IDF模型保存成功")
+                    except Exception as e:
+                        self.logger.error(f"保存TF-IDF模型失败: {str(e)}")
+                    
+                    # 训练SVD降维
+                    if self.tfidf_matrix.shape[1] > 100:
+                        try:
+                            n_components = min(100, self.tfidf_matrix.shape[1] - 1)
+                            self.svd_model = TruncatedSVD(n_components=n_components)
+                            self.svd_features = self.svd_model.fit_transform(self.tfidf_matrix)
+                            joblib.dump(self.svd_model, 'svd_model.pkl')
+                            self.logger.info("SVD模型训练和保存成功")
+                        except Exception as e:
+                            self.logger.error(f"SVD模型训练或保存失败: {str(e)}")
+                else:
+                    self.logger.warning("没有可用的训练数据")
+        except Exception as e:
+            self.logger.error(f"模型训练失败: {str(e)}")
+            raise
+    
+    def config_updated(self, path: str, new_value: Any):
+        """配置更新回调"""
+        if path.startswith('recommender.'):
+            self.logger.info(f"检测到推荐配置变更: {path}")
+            with self._lock:
+                # 更新本地配置
+                self.config = self.config_manager.get('recommender', {})
+                # 清除相关缓存
+                self.cache_manager.clear_pattern('features:*')
+                # 重新训练模型
+                try:
+                    self.fit_model()
+                    self.logger.info("配置更新后模型重训练成功")
+                except Exception as e:
+                    self.logger.error(f"配置更新后模型重训练失败: {str(e)}")
     
     @track_performance('get_tfidf_matrix', performance_collector)
     def get_tfidf_matrix(self):
         """获取TF-IDF矩阵（带缓存）"""
-        if self.tfidf_matrix is not None:
-            return self.tfidf_matrix
-            
-        if self.posts is None:
-            self.load_data()
-            
-        # 计算TF-IDF矩阵
-        feature_texts = self.posts['features'].fillna('')
-        self.tfidf_matrix = self.tfidf.transform(feature_texts)
-        return self.tfidf_matrix
+        try:
+            with self._lock:
+                if self.tfidf_matrix is not None:
+                    return self.tfidf_matrix
+                    
+                if self.posts is None:
+                    self.load_data()
+                    
+                if self.posts is not None and not self.posts.empty:
+                    # 计算TF-IDF矩阵
+                    feature_texts = self.posts['features'].fillna('')
+                    self.tfidf_matrix = self.tfidf.transform(feature_texts)
+                    return self.tfidf_matrix
+                else:
+                    self.logger.warning("无法获取TF-IDF矩阵：没有可用的帖子数据")
+                    return None
+        except Exception as e:
+            self.logger.error(f"获取TF-IDF矩阵失败: {str(e)}")
+            raise
     
     @track_performance('get_user_profile', performance_collector)
     def get_user_profile(self, user_id):
@@ -366,7 +529,7 @@ class FeatureProcessor:
         JOIN posts p ON user_behaviors.post_id = p.post_id
         """
         
-        days = RECOMMEND_CONFIG['recent_days']
+        days = config.config_manager.get('recent_days')
         params = (
             user_id, days,
             user_id, days,
@@ -400,7 +563,7 @@ class FeatureProcessor:
             if not tags:
                 continue
             
-            weight = BEHAVIOR_WEIGHTS.get(behavior, 1)
+            weight = config.BEHAVIOR_WEIGHTS.get(behavior, 1)
             try:
                 # 检查缓存中是否已有此标签的向量
                 if tags not in tag_vectors:
@@ -448,7 +611,7 @@ class FeatureProcessor:
             LIMIT 1000
         ) as active_users
         """
-        days = RECOMMEND_CONFIG['recent_days']
+        days = config.config_manager.get('recent_days')
         users = db_pool.query(sql, (
             user_id, days, 
             user_id, days, 

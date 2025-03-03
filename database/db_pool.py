@@ -31,67 +31,69 @@ class DatabasePool:
     
     def __new__(cls, *args, **kwargs):
         """单例模式实现"""
-        with cls._lock:
-            if cls._instance is None:
-                cls._instance = super(DatabasePool, cls).__new__(cls)
-                cls._instance._initialized = False
-            return cls._instance
+        if cls._instance is None:
+            with cls._lock:
+                if cls._instance is None:
+                    cls._instance = super(DatabasePool, cls).__new__(cls)
+                    cls._instance._initialized = False
+        return cls._instance
     
     def __init__(self):
         """初始化数据库连接池"""
-        if self._initialized:
-            return
+        with self._lock:
+            if self._initialized:
+                return
             
-        self.logger = logging.getLogger("db_pool")
-        self.config = get_config_manager()
-        
-        # 连接池配置
-        self.db_config = self.config.get_section('database').get('mysql', {})
-        self.pool_size = self.db_config.get('pool_size', 10)
-        self.pool_recycle = self.db_config.get('pool_recycle', 3600)
-        self.pool_timeout = self.db_config.get('pool_timeout', 30)
-        
-        # 连接信息
-        self.host = self.db_config.get('host', 'localhost')
-        self.port = self.db_config.get('port', 3306)
-        self.user = self.db_config.get('user', 'root')
-        self.password = self.db_config.get('password', '')
-        self.database = self.db_config.get('database', 'recommend_system')
-        self.charset = self.db_config.get('charset', 'utf8mb4')
-        
-        # 连接URL
-        self.connection_url = (
-            f"mysql+pymysql://{self.user}:{self.password}@"
-            f"{self.host}:{self.port}/{self.database}?charset={self.charset}"
-        )
-        
-        # SQLAlchemy引擎和会话
-        self.engine = None
-        self.session_factory = None
-        self.Session = None
-        
-        # 统计信息
-        self.query_count = 0
-        self.error_count = 0
-        self.last_error_time = None
-        self.last_error_message = None
-        
-        # 熔断器状态
-        self.circuit_open = False
-        self.failure_count = 0
-        self.recovery_time = None
-        
-        # 熔断器配置
-        circuit_config = self.config.get_section('circuit_breaker')
-        self.circuit_enabled = circuit_config.get('enabled', True)
-        db_circuit = circuit_config.get('services', {}).get('database', {})
-        self.failure_threshold = db_circuit.get('failure_threshold', 3)
-        self.recovery_timeout = db_circuit.get('recovery_timeout', 60)
-        
-        # 初始化连接池
-        self._initialize_pool()
-        
-        self._initialized = True
+            self.logger = logging.getLogger("db_pool")
+            self.config = get_config_manager()
+            
+            # 连接池配置
+            self.db_config = self.config.get_section('database').get('mysql', {})
+            self.pool_size = self.db_config.get('pool_size', 10)
+            self.pool_recycle = self.db_config.get('pool_recycle', 3600)
+            self.pool_timeout = self.db_config.get('pool_timeout', 30)
+            
+            # 连接信息
+            self.host = self.db_config.get('host', 'localhost')
+            self.port = self.db_config.get('port', 3306)
+            self.user = self.db_config.get('user', 'root')
+            self.password = self.db_config.get('password', '')
+            self.database = self.db_config.get('database', 'recommend_system')
+            self.charset = self.db_config.get('charset', 'utf8mb4')
+            
+            # 连接URL
+            self.connection_url = (
+                f"mysql+pymysql://{self.user}:{self.password}@"
+                f"{self.host}:{self.port}/{self.database}?charset={self.charset}"
+            )
+            
+            # SQLAlchemy引擎和会话
+            self.engine = None
+            self.session_factory = None
+            self.Session = None
+            
+            # 统计信息
+            self.query_count = 0
+            self.error_count = 0
+            self.last_error_time = None
+            self.last_error_message = None
+            
+            # 熔断器状态
+            self.circuit_open = False
+            self.failure_count = 0
+            self.recovery_time = None
+            
+            # 熔断器配置
+            circuit_config = self.config.get_section('circuit_breaker')
+            self.circuit_enabled = circuit_config.get('enabled', True)
+            db_circuit = circuit_config.get('services', {}).get('database', {})
+            self.failure_threshold = db_circuit.get('failure_threshold', 3)
+            self.recovery_timeout = db_circuit.get('recovery_timeout', 60)
+            
+            # 初始化连接池
+            self._initialize_pool()
+            
+            self._initialized = True
     
     def _initialize_pool(self):
         """初始化SQLAlchemy连接池"""
