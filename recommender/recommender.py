@@ -431,13 +431,13 @@ class FeatureProcessor:
                 # 如果已有模型就加载，否则训练
                 try:
                     self.logger.debug("尝试加载已有的TF-IDF模型...")
-                    self.tfidf = joblib.load('tfidf_model.pkl')
+                    self.tfidf = joblib.load('models/tfidf_model.pkl')
                     self.feature_names = self.tfidf.get_feature_names_out()
                     self.logger.info("成功加载已有的TF-IDF模型")
                     
                     # 尝试加载SVD模型
                     try:
-                        self.svd_model = joblib.load('svd_model.pkl')
+                        self.svd_model = joblib.load('models/svd_model.pkl')
                         self.logger.info("成功加载SVD模型")
                     except Exception as e:
                         self.logger.warning(f"加载SVD模型失败: {str(e)}")
@@ -469,7 +469,7 @@ class FeatureProcessor:
                     # 保存模型
                     try:
                         self.logger.debug("保存TF-IDF模型...")
-                        joblib.dump(self.tfidf, 'tfidf_model.pkl')
+                        joblib.dump(self.tfidf, 'models/tfidf_model.pkl')
                         self.logger.info("TF-IDF模型保存成功")
                     except Exception as e:
                         self.logger.error(f"保存TF-IDF模型失败: {str(e)}")
@@ -481,7 +481,7 @@ class FeatureProcessor:
                             n_components = min(100, self.tfidf_matrix.shape[1] - 1)
                             self.svd_model = TruncatedSVD(n_components=n_components)
                             self.svd_features = self.svd_model.fit_transform(self.tfidf_matrix)
-                            joblib.dump(self.svd_model, 'svd_model.pkl')
+                            joblib.dump(self.svd_model, 'models/svd_model.pkl')
                             self.logger.info("SVD模型训练和保存成功")
                         except Exception as e:
                             self.logger.error(f"SVD模型训练或保存失败: {str(e)}")
