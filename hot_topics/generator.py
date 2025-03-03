@@ -5,13 +5,14 @@ from typing import List, Dict, Any, Optional, Tuple
 from datetime import datetime, timedelta
 import time
 from threading import Lock
+from .cache_manager import HotTopicsCacheManager
 
 class HotTopicGenerator:
     """热点话题生成器"""
     def __init__(self, db_manager=None, cache_manager=None):
         self.logger = logging.getLogger("hot_topic_generator")
         self.db_manager = db_manager
-        self.cache_manager = cache_manager
+        self.cache_manager = cache_manager or HotTopicsCacheManager()
         
         # 参数配置
         self.top_n = 50  # 生成的热点数量

@@ -211,10 +211,8 @@ python3 main.py
 python3 main.py --debug
 
 # 执行测试任务（立即执行所有定时任务）
-python3 main.py --run-tasks
+python3 main.py --run-tasks  --no-scheduler
 
-# 禁用调度器启动（不运行定时任务）
-python3 main.py --no-scheduler
 
 # 指定日志文件路径（默认输出到 logs/app.log）
 python3 main.py --log-file logs/custom.log

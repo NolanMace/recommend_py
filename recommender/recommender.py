@@ -14,13 +14,12 @@ from concurrent.futures import ThreadPoolExecutor
 from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.metrics.pairwise import cosine_similarity
 from sklearn.decomposition import TruncatedSVD
-from database import get_db_pool
+from database.database import get_db_pool, get_db_manager
 from cache import memory_cache, disk_cache, cached_get, cache_result, TimerContext
-from monitor import track_performance, performance_collector
+from utils.monitor import track_performance, performance_collector
 import logging
 from typing import List, Dict, Any
 from config.config_manager import get_config_manager
-from database.database import get_db_manager
 from cache.cache_manager import get_cache_manager
 
 logger = logging.getLogger(__name__)
