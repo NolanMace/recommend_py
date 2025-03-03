@@ -3,6 +3,13 @@ import logging
 import threading
 from typing import Dict, Any, Optional, List
 from datetime import timedelta
+from .config import (
+    RECOMMENDER_CONFIG,
+    EXPOSURE_CONFIG,
+    SCHEDULER_CONFIG,
+    LOGGING_CONFIG,
+    API_CONFIG
+)
 
 class ConfigManager:
     """配置管理器
@@ -33,133 +40,12 @@ class ConfigManager:
         self.log_dir = os.path.join(self.base_dir, 'logs')
         
         # 初始化配置字典
-        self.config = {
-            'mysql': {
-                'host': 'localhost',      # 数据库地址
-                'port': 3306,            # 数据库端口
-                'user': 'root',          # 数据库用户名
-                'password': 'root',      # 数据库密码
-                'database': 'recommend_system',  # 数据库名
-                'charset': 'utf8mb4',    # 字符集
-                'autocommit': True,      # 自动提交
-                'connect_timeout': 10,   # 连接超时（秒）
-                'cursorclass': 'DictCursor'  # 返回字典格式结果
-            },
-            'pool': {
-                'mincached': 2,          # 初始空闲连接数
-                'maxcached': 5,          # 最大空闲连接数
-                'maxconnections': 20,    # 最大连接数
-                'blocking': True         # 连接池满时是否阻塞
-            },
-            'cache': {
-                'max_size': 10000,       # 最大缓存条目数
-                'ttl': {
-                    'hot_topics': timedelta(minutes=5),      # 热点话题缓存时间
-                    'user_recommendations': timedelta(hours=1),  # 用户推荐结果缓存时间
-                    'user_history': timedelta(days=7),       # 用户历史缓存时间
-                    'system_config': timedelta(days=1)       # 系统配置缓存时间
-                }
-            },
-            'recommender': {
-                'default_page_size': 20,     # 默认每页推荐数量
-                'max_recommendations': 100,   # 单次最大推荐数量
-                'min_score': 0.1,            # 最小推荐分数阈值
-                'algorithm_weights': {
-                    'content_based': 0.3,     # 基于内容推荐权重
-                    'collaborative': 0.4,     # 协同过滤权重
-                    'hot_topics': 0.3        # 热点推荐权重
-                },
-                'behavior_weights': {
-                    'view': 1,
-                    'click': 2,
-                    'like': 3,
-                    'collect': 4,
-                    'comment': 5
-                },
-                'time_decay': {
-                    'half_life_days': 7,      # 半衰期（天）
-                    'max_age_days': 30        # 最大年龄（天）
-                }
-            },
-            'exposure': {
-                'global_ratio': 0.3,   # 曝光池在总推荐中的比例
-                'pools': {
-                    'new': {
-                        'ratio': 0.5,
-                        'max_age_hours': 24,
-                        'min_score': 0.1
-                    },
-                    'hot': {
-                        'ratio': 0.3,
-                        'max_age_days': 7,
-                        'min_heat_score': 100
-                    },
-                    'quality': {
-                        'ratio': 0.2,
-                        'min_quality_score': 0.8,
-                        'max_age_days': 30
-                    }
-                }
-            },
-            'scheduler': {
-                'jobs': {
-                    'update_hot_topics': {
-                        'interval': timedelta(minutes=5),
-                        'max_topics': 50
-                    },
-                    'precalculate_recommendations': {
-                        'interval': timedelta(hours=1),
-                        'batch_size': 1000
-                    },
-                    'clean_cache': {
-                        'interval': timedelta(hours=6)
-                    },
-                    'calculate_statistics': {
-                        'interval': timedelta(hours=24)
-                    }
-                },
-                'max_workers': 4,  # 最大工作线程数
-                'job_timeout': 300  # 任务超时时间（秒）
-            },
-            'logging': {
-                'version': 1,
-                'disable_existing_loggers': False,
-                'formatters': {
-                    'standard': {
-                        'format': '%(asctime)s [%(levelname)s] %(name)s: %(message)s'
-                    }
-                },
-                'handlers': {
-                    'default': {
-                        'level': 'INFO',
-                        'formatter': 'standard',
-                        'class': 'logging.StreamHandler'
-                    },
-                    'file': {
-                        'level': 'INFO',
-                        'formatter': 'standard',
-                        'class': 'logging.handlers.RotatingFileHandler',
-                        'filename': os.path.join(self.log_dir, 'recommend_system.log'),
-                        'maxBytes': 10485760,  # 10MB
-                        'backupCount': 5
-                    }
-                },
-                'loggers': {
-                    '': {  # root logger
-                        'handlers': ['default', 'file'],
-                        'level': 'INFO',
-                        'propagate': True
-                    }
-                }
-            },
-            'api': {
-                'rate_limit': {
-                    'default': '100/minute',  # 默认速率限制
-                    'strict': '10/minute'     # 严格速率限制
-                },
-                'timeout': 30,  # API超时时间（秒）
-                'max_page_size': 100  # 最大页面大小
-            }
+        self._config = {
+            'recommender': RECOMMENDER_CONFIG,
+            'exposure': EXPOSURE_CONFIG,
+            'scheduler': SCHEDULER_CONFIG,
+            'logging': LOGGING_CONFIG,
+            'api': API_CONFIG
         }
         
         # 配置观察者列表
@@ -173,37 +59,26 @@ class ConfigManager:
     def validate_config(self):
         """验证配置项的完整性和有效性"""
         required_configs = [
-            'mysql', 'pool', 'cache', 'recommender',
-            'exposure', 'scheduler', 'logging', 'api'
+            'recommender', 'exposure', 'scheduler', 'logging', 'api'
         ]
         
         # 检查必要配置项是否存在
         for config_name in required_configs:
-            if config_name not in self.config:
+            if config_name not in self._config:
                 raise ValueError(f"缺少必要的配置项: {config_name}")
-        
-        # 验证MySQL配置
-        mysql_required = ['host', 'port', 'user', 'password', 'database']
-        for field in mysql_required:
-            if field not in self.config['mysql']:
-                raise ValueError(f"MySQL配置缺少必要字段: {field}")
-        
-        # 验证缓存配置
-        if 'max_size' not in self.config['cache']:
-            raise ValueError("缓存配置缺少 max_size 字段")
         
         # 验证推荐器配置
         recommender_required = ['default_page_size', 'max_recommendations', 'algorithm_weights']
         for field in recommender_required:
-            if field not in self.config['recommender']:
+            if field not in self._config['recommender']:
                 raise ValueError(f"推荐器配置缺少必要字段: {field}")
         
         # 验证曝光池配置
-        if 'pools' not in self.config['exposure']:
+        if 'pools' not in self._config['exposure']:
             raise ValueError("曝光池配置缺少 pools 字段")
         
         # 验证调度器配置
-        if 'jobs' not in self.config['scheduler']:
+        if 'jobs' not in self._config['scheduler']:
             raise ValueError("调度器配置缺少 jobs 字段")
             
         self.logger.info("配置验证通过")
@@ -224,7 +99,7 @@ class ConfigManager:
             return default
             
         parts = path.split('.')
-        value = self.config
+        value = self._config
         
         for part in parts:
             if isinstance(value, dict) and part in value:
@@ -245,7 +120,7 @@ class ConfigManager:
             return
             
         parts = path.split('.')
-        config = self.config
+        config = self._config
         
         # 遍历路径直到最后一个部分
         for part in parts[:-1]:
@@ -302,7 +177,7 @@ class ConfigManager:
         Returns:
             Dict: 完整配置字典的副本
         """
-        return self.config.copy()
+        return self._config.copy()
 
 # 全局配置管理器实例
 _config_manager = None
