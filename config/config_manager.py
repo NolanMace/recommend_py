@@ -8,7 +8,9 @@ from .config import (
     EXPOSURE_CONFIG,
     SCHEDULER_CONFIG,
     LOGGING_CONFIG,
-    API_CONFIG
+    API_CONFIG,
+    MYSQL_CONFIG,
+    POOL_CONFIG
 )
 
 class ConfigManager:
@@ -45,7 +47,11 @@ class ConfigManager:
             'exposure': EXPOSURE_CONFIG,
             'scheduler': SCHEDULER_CONFIG,
             'logging': LOGGING_CONFIG,
-            'api': API_CONFIG
+            'api': API_CONFIG,
+            'database': {
+                'mysql': MYSQL_CONFIG,
+                'pool': POOL_CONFIG
+            }
         }
         
         # 配置观察者列表
