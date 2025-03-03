@@ -196,10 +196,7 @@ class TaskScheduler:
             """
             
             try:
-                with self.db_pool.connection() as conn:
-                    with conn.cursor(dictionary=True) as cursor:
-                        cursor.execute(sql, (batch_size,))
-                        users = cursor.fetchall()
+                users = self.db_pool.query(sql, (batch_size,))
             except Exception as e:
                 self.logger.warning(f"查询活跃用户失败: {str(e)}")
                 users = []
