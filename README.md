@@ -236,57 +236,131 @@ python3 main.py --log-file logs/custom.log
 - ERROR: 影响功能但不影响系统稳定性的错误
 - CRITICAL: 严重错误，可能导致系统不可用
 
-## 测试工具
+## 测试指南
 
-系统提供了测试工具，用于验证推荐功能和性能：
+### 1. 环境准备
 
 ```bash
-# 运行单元测试
-python3 -m pytest tests/
+# 创建并激活虚拟环境
+python3 -m venv venv
+source venv/bin/activate  # Mac/Linux
+# 或
+.\venv\Scripts\activate  # Windows
 
-# 运行推荐系统测试
-python3 tests/test_recommender.py
-
-# 运行性能测试（包含并发测试）
-python3 tests/test_performance.py
-
-# 运行集成测试
-python3 tests/test_integration.py
+# 安装测试依赖
+python3 -m pip install pytest pytest-cov pytest-benchmark -i https://pypi.tuna.tsinghua.edu.cn/simple
 ```
 
-### 测试用例说明
-
-- **单元测试**: 测试各个模块的基本功能
-
-  - 缓存系统测试
-  - 数据库连接池测试
-  - 配置管理器测试
-  - 推荐算法测试
-
-- **集成测试**: 测试模块间的交互
-
-  - 推荐流程测试
-  - 任务调度测试
-  - 数据更新流程测试
-
-- **性能测试**: 测试系统在压力下的表现
-  - 并发用户请求测试
-  - 缓存性能测试
-  - 数据库连接池性能测试
-
-### 测试数据
-
-测试数据位于 `tests/data` 目录：
-
-- `test_posts.csv`: 测试用帖子数据
-- `test_users.csv`: 测试用户数据
-- `test_interactions.csv`: 用户交互数据
-
-运行测试前请确保测试数据已正确导入：
+### 2. 导入测试数据
 
 ```bash
-# 导入测试数据
+# 导入测试数据集
 python3 tests/import_test_data.py
+```
+
+测试数据包含：
+
+- `tests/data/test_posts.csv`: 1000 条测试帖子
+- `tests/data/test_users.csv`: 100 个测试用户
+- `tests/data/test_interactions.csv`: 1000 条用户交互记录
+
+### 3. 运行测试
+
+```bash
+# 运行所有测试并生成覆盖率报告
+python3 -m pytest tests/ --cov=. --cov-report=html
+
+# 只运行特定模块的测试
+python3 -m pytest tests/test_recommender.py  # 推荐系统测试
+python3 -m pytest tests/test_cache.py        # 缓存系统测试
+python3 -m pytest tests/test_db_pool.py      # 数据库连接池测试
+
+# 运行性能测试
+python3 -m pytest tests/test_performance.py --benchmark-only
+
+# 运行集成测试
+python3 -m pytest tests/test_integration.py
+```
+
+### 4. 测试用例说明
+
+#### 单元测试
+
+- **缓存测试** (`test_cache.py`)
+
+  - LRU 策略验证
+  - 过期清理测试
+  - 线程安全测试
+  - 内存限制测试
+
+- **数据库连接池测试** (`test_db_pool.py`)
+
+  - 连接获取和释放
+  - 自动重连机制
+  - 连接池满载测试
+  - 熔断器功能测试
+
+- **推荐算法测试** (`test_recommender.py`)
+  - 个性化推荐准确性
+  - 冷启动处理
+  - 推荐多样性
+  - 实时性测试
+
+#### 集成测试 (`test_integration.py`)
+
+- 完整推荐流程测试
+- 定时任务联动测试
+- 配置热更新测试
+- 异常恢复测试
+
+#### 性能测试 (`test_performance.py`)
+
+- 并发推荐请求测试（100/500/1000 并发）
+- 缓存命中率测试
+- 数据库连接池压力测试
+- 内存使用监控
+
+### 5. 测试报告查看
+
+```bash
+# 查看HTML格式的覆盖率报告
+open htmlcov/index.html  # Mac
+# 或
+start htmlcov/index.html  # Windows
+
+# 查看性能测试报告
+python3 -m pytest tests/test_performance.py --benchmark-only --benchmark-histogram
+```
+
+### 6. 常见问题排查
+
+1. 数据库连接失败
+
+```bash
+# 检查MySQL服务状态
+mysql.server status  # Mac
+# 或
+net start mysql     # Windows
+```
+
+2. 测试数据导入失败
+
+```bash
+# 检查数据文件权限
+ls -l tests/data/
+
+# 手动执行SQL导入
+mysql -u root -p recommend_system < tests/data/init.sql
+```
+
+3. 测试执行超时
+
+```bash
+# 使用-v参数查看详细日志
+python3 -m pytest tests/ -v
+
+# 单独执行超时的测试用例
+python3 -m pytest tests/test_performance.py::test_concurrent_requests -v
 ```
 
 ## API 接口
