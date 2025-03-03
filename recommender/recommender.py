@@ -316,6 +316,165 @@ class Recommender:
         
         return controlled_recommendations or recommendations
 
+    def generate_hot_topics(self, time_window: timedelta = None) -> List[Dict]:
+        """生成热点话题
+        
+        Args:
+            time_window: 时间窗口，默认使用配置中的值
+            
+        Returns:
+            List[Dict]: 热点话题列表，每个话题包含id、title、score等信息
+        """
+        if time_window is None:
+            time_window = HOT_TOPICS_CONFIG['time_window']
+            
+        self.logger.info(f"开始生成热点话题，时间窗口：{time_window}")
+        
+        try:
+            # 计算时间范围
+            end_time = datetime.now()
+            start_time = end_time - time_window
+            
+            # 查询热门帖子
+            sql = """
+            SELECT 
+                p.id,
+                p.title,
+                p.content,
+                p.created_at,
+                COUNT(DISTINCT v.user_id) as view_count,
+                COUNT(DISTINCT l.user_id) as like_count,
+                COUNT(DISTINCT c.id) as comment_count
+            FROM posts p
+            LEFT JOIN post_views v ON p.id = v.post_id AND v.created_at BETWEEN %s AND %s
+            LEFT JOIN post_likes l ON p.id = l.post_id AND l.created_at BETWEEN %s AND %s
+            LEFT JOIN comments c ON p.id = c.post_id AND c.created_at BETWEEN %s AND %s
+            WHERE p.created_at BETWEEN %s AND %s
+            GROUP BY p.id
+            HAVING (view_count + like_count * 2 + comment_count * 3) >= %s
+            ORDER BY (view_count + like_count * 2 + comment_count * 3) DESC
+            LIMIT %s
+            """
+            
+            params = (
+                start_time, end_time,  # views
+                start_time, end_time,  # likes
+                start_time, end_time,  # comments
+                start_time, end_time,  # posts
+                HOT_TOPICS_CONFIG['min_score'],
+                HOT_TOPICS_CONFIG['max_topics']
+            )
+            
+            hot_posts = self.db_manager.execute_query(sql, params)
+            
+            # 计算热度分数并格式化结果
+            topics = []
+            for post in hot_posts:
+                score = (
+                    post['view_count'] + 
+                    post['like_count'] * 2 + 
+                    post['comment_count'] * 3
+                )
+                
+                topics.append({
+                    'id': post['id'],
+                    'title': post['title'],
+                    'content': post['content'][:200],  # 截取前200个字符
+                    'score': score,
+                    'view_count': post['view_count'],
+                    'like_count': post['like_count'],
+                    'comment_count': post['comment_count'],
+                    'created_at': post['created_at'].strftime('%Y-%m-%d %H:%M:%S')
+                })
+            
+            self.logger.info(f"热点话题生成完成，共{len(topics)}个话题")
+            return topics
+            
+        except Exception as e:
+            self.logger.error(f"生成热点话题失败: {str(e)}")
+            return []
+
+    def batch_generate_recommendations(self, batch_size: int = 100) -> None:
+        """批量生成用户推荐
+        
+        Args:
+            batch_size: 每批处理的用户数量
+        """
+        self.logger.info(f"开始批量生成推荐，批次大小：{batch_size}")
+        
+        try:
+            # 获取所有活跃用户
+            sql = """
+            SELECT DISTINCT user_id 
+            FROM user_behaviors 
+            WHERE created_at >= DATE_SUB(NOW(), INTERVAL 30 DAY)
+            """
+            users = self.db_manager.execute_query(sql)
+            
+            if not users:
+                self.logger.warning("没有找到活跃用户")
+                return
+                
+            total_users = len(users)
+            self.logger.info(f"找到 {total_users} 个活跃用户")
+            
+            # 创建线程池
+            with ThreadPoolExecutor(max_workers=MAX_WORKERS) as executor:
+                # 分批处理用户
+                for i in range(0, total_users, batch_size):
+                    batch_users = users[i:i + batch_size]
+                    batch_num = i // batch_size + 1
+                    total_batches = (total_users + batch_size - 1) // batch_size
+                    
+                    self.logger.info(f"处理第 {batch_num}/{total_batches} 批用户 ({len(batch_users)} 个用户)")
+                    
+                    # 并行生成推荐
+                    futures = []
+                    for user in batch_users:
+                        future = executor.submit(
+                            self._generate_and_cache_recommendations,
+                            user['user_id']
+                        )
+                        futures.append(future)
+                    
+                    # 等待当前批次完成
+                    for future in futures:
+                        try:
+                            future.result()
+                        except Exception as e:
+                            self.logger.error(f"生成推荐失败: {str(e)}")
+                    
+                    self.logger.info(f"第 {batch_num}/{total_batches} 批处理完成")
+            
+            self.logger.info("批量生成推荐完成")
+            
+        except Exception as e:
+            self.logger.error(f"批量生成推荐失败: {str(e)}")
+            raise
+    
+    def _generate_and_cache_recommendations(self, user_id: int) -> None:
+        """为单个用户生成推荐并缓存
+        
+        Args:
+            user_id: 用户ID
+        """
+        try:
+            # 生成推荐
+            recommendations = self._generate_recommendations(
+                user_id,
+                offset=0,
+                limit=self.config.get('max_recommendations', 100)
+            )
+            
+            # 缓存推荐结果
+            cache_key = f'recommendations:user:{user_id}:page:1'
+            cache_ttl = self.config_manager.get('cache.ttl.user_recommendations', 3600)
+            self.cache_manager.set(cache_key, recommendations, ttl=cache_ttl)
+            
+        except Exception as e:
+            self.logger.error(f"为用户 {user_id} 生成推荐失败: {str(e)}")
+            raise
+
 # 全局推荐器实例
 _recommender = None
 
@@ -459,34 +618,53 @@ class FeatureProcessor:
                     self.load_data()
                 
                 if not self.posts.empty:
-                    # 训练TF-IDF
-                    self.logger.debug("开始训练TF-IDF向量器...")
+                    # 数据预处理
+                    self.logger.debug("开始数据预处理...")
                     feature_texts = self.posts['features'].fillna('')
                     
-                    # 验证文本数据
-                    valid_texts = [text for text in feature_texts if len(str(text).strip()) > 0]
+                    # 文本清理和验证
+                    valid_texts = []
+                    for text in feature_texts:
+                        # 转换为字符串并清理
+                        text = str(text).strip()
+                        # 移除过短的文本
+                        if len(text) >= 2:  # 至少2个字符
+                            valid_texts.append(text)
+                    
                     if not valid_texts:
-                        self.logger.error("没有有效的文本数据用于训练")
-                        raise ValueError("Empty text data for TF-IDF training")
-                        
+                        raise ValueError("没有有效的文本数据用于训练")
+                    
                     self.logger.info(f"使用 {len(valid_texts)} 条有效文本进行训练")
                     
                     # 配置TF-IDF向量器
-                    tfidf_params = self.recommender_config.TFIDF_PARAMS.copy()
-                    tfidf_params.update({
-                        'min_df': 1,  # 降低最小文档频率要求
+                    tfidf_params = {
+                        'max_features': 5000,  # 限制特征数量
+                        'min_df': 1,  # 词必须至少出现1次
+                        'max_df': 0.95,  # 出现在超过95%文档中的词会被移除
+                        'ngram_range': (1, 2),  # 使用单个词和双词组合
                         'stop_words': None,  # 不使用停用词
-                        'strip_accents': 'unicode',  # 处理重音字符
-                        'lowercase': True,  # 转换为小写
-                        'analyzer': 'word',  # 使用词级别分析
+                        'strip_accents': 'unicode',
+                        'lowercase': True,
+                        'analyzer': 'word',
                         'token_pattern': r'(?u)\b\w+\b'  # 匹配任何单词字符
-                    })
+                    }
                     
+                    # 使用配置中的参数覆盖默认值
+                    if hasattr(self, 'recommender_config'):
+                        tfidf_params.update(self.recommender_config.TFIDF_PARAMS)
+                    
+                    self.logger.debug(f"TF-IDF参数配置: {tfidf_params}")
+                    
+                    # 训练模型
                     self.tfidf = TfidfVectorizer(**tfidf_params)
                     self.tfidf_matrix = self.tfidf.fit_transform(valid_texts)
                     self.feature_names = self.tfidf.get_feature_names_out()
                     
                     self.logger.info(f"TF-IDF模型训练完成，特征数量: {len(self.feature_names)}")
+                    
+                    # 确保models目录存在
+                    import os
+                    os.makedirs('models', exist_ok=True)
                     
                     # 保存模型
                     try:
@@ -509,6 +687,7 @@ class FeatureProcessor:
                             self.logger.error(f"SVD模型训练或保存失败: {str(e)}")
                 else:
                     self.logger.warning("没有可用的训练数据")
+                    
         except Exception as e:
             self.logger.error(f"模型训练失败: {str(e)}")
             raise
