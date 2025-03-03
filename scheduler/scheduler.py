@@ -154,13 +154,15 @@ class TaskScheduler:
         self.logger.info("开始生成热点话题...")
         try:
             rec = self.get_recommender()
-            new_hot_topics = rec.generate_hot_topics(self.hot_topics_config['count'])
+            # 使用 max_topics 而不是 count
+            max_topics = self.hot_topics_config.get('max_topics', 50)
+            new_hot_topics = rec.generate_hot_topics()
             
             # 更新全局热点列表
             with self.hot_topics_lock:
-                self.hot_topics = new_hot_topics
+                self.hot_topics = new_hot_topics[:max_topics] if new_hot_topics else []
                 
-            self.logger.info(f"成功生成{len(new_hot_topics)}个热点话题")
+            self.logger.info(f"成功生成{len(self.hot_topics)}个热点话题")
         except Exception as e:
             self.logger.error(f"生成热点话题失败: {str(e)}")
     
