@@ -342,18 +342,19 @@ class Recommender:
             WITH ranked_posts AS (
                 SELECT 
                     p.post_id,
-                    p.title,
-                    p.content,
-                    p.created_at,
+                    p.post_title,
+                    p.post_content as content,
+                    p.note_date as created_at,
                     p.view_count,
                     p.like_count,
                     p.comment_count,
-                    p.heat_score,
+                    p.hot_count as heat_score,
+                    p.hashtags,
                     GROUP_CONCAT(DISTINCT c.content SEPARATOR ' ') as comment_contents,
-                    COUNT(DISTINCT c.comment_id) as comment_count,
-                    COUNT(DISTINCT l.user_id) as like_count,
-                    COUNT(DISTINCT v.user_id) as view_count,
-                    ROW_NUMBER() OVER (PARTITION BY DATE(p.created_at) ORDER BY p.heat_score DESC) as daily_rank
+                    COUNT(DISTINCT c.comment_id) as total_comments,
+                    COUNT(DISTINCT l.user_id) as total_likes,
+                    COUNT(DISTINCT v.user_id) as total_views,
+                    ROW_NUMBER() OVER (PARTITION BY DATE(p.note_date) ORDER BY p.hot_count DESC) as daily_rank
                 FROM posts p
                 LEFT JOIN comments c ON p.post_id = c.post_id 
                     AND c.created_at BETWEEN %s AND %s
@@ -361,10 +362,11 @@ class Recommender:
                     AND l.created_at BETWEEN %s AND %s
                 LEFT JOIN post_views v ON p.post_id = v.post_id
                     AND v.view_time BETWEEN %s AND %s
-                WHERE p.created_at BETWEEN %s AND %s
-                    AND p.status = 1
-                GROUP BY p.post_id, p.title, p.content, p.created_at,
-                         p.view_count, p.like_count, p.comment_count, p.heat_score
+                WHERE p.note_date BETWEEN %s AND %s
+                    AND p.is_private = 0
+                    AND p.is_draft = 0
+                GROUP BY p.post_id, p.post_title, p.post_content, p.note_date,
+                         p.view_count, p.like_count, p.comment_count, p.hot_count, p.hashtags
             )
             SELECT * FROM ranked_posts 
             WHERE daily_rank <= 10  -- 每天取前10篇热门帖子
@@ -421,10 +423,12 @@ class Recommender:
                         'total_views': sum(p['view_count'] for p in group),
                         'total_likes': sum(p['like_count'] for p in group),
                         'total_comments': sum(p['comment_count'] for p in group),
+                        'hashtags': list(set(tag.strip() for p in group for tag in (p['hashtags'] or '').split(',') if tag.strip())),
                         'posts': [{
                             'id': post['post_id'],
-                            'title': post['title'],
-                            'content': post['content'][:200],
+                            'title': post['post_title'],
+                            'content': post['content'][:200] if post['content'] else '',
+                            'image_url': post.get('image_url', ''),
                             'view_count': post['view_count'],
                             'like_count': post['like_count'],
                             'comment_count': post['comment_count'],
@@ -461,8 +465,9 @@ class Recommender:
             
         # 计算帖子间的相似度
         def calc_similarity(post1, post2):
-            text1 = f"{post1['title']} {post1['content']}"
-            text2 = f"{post2['title']} {post2['content']}"
+            # 合并标题、内容和标签
+            text1 = f"{post1['post_title']} {post1['content'] or ''} {post1['hashtags'] or ''}"
+            text2 = f"{post2['post_title']} {post2['content'] or ''} {post2['hashtags'] or ''}"
             words1 = set(text1.split())
             words2 = set(text2.split())
             common_words = words1.intersection(words2)
@@ -506,15 +511,15 @@ class Recommender:
             str: 话题摘要
         """
         # 使用最热门帖子的标题作为基础
-        base_title = posts[0]['title']
+        base_title = posts[0]['post_title']
         
         # 如果组内帖子标题相似度高，直接使用最热门的标题
-        titles = [p['title'] for p in posts]
+        titles = [p['post_title'] for p in posts]
         if len(set(titles)) < len(posts) * 0.7:  # 70%的标题相似
             return base_title
             
         # 否则生成概括性标题
-        common_words = set.intersection(*[set(p['title'].split()) for p in posts])
+        common_words = set.intersection(*[set(p['post_title'].split()) for p in posts])
         if common_words:
             # 使用共同词构建标题
             summary = ' '.join(sorted(common_words, key=lambda x: base_title.find(x)))
