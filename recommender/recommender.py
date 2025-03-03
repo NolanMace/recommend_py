@@ -409,7 +409,7 @@ class Recommender:
             FROM user_behaviors 
             WHERE created_at >= DATE_SUB(NOW(), INTERVAL 30 DAY)
             """
-            users = self.db_manager.execute_query(sql)
+            users = db_pool.query(sql)
             
             if not users:
                 self.logger.warning("没有找到活跃用户")
