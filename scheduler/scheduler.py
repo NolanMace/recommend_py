@@ -196,7 +196,7 @@ class TaskScheduler:
             """
             
             try:
-                users = self.db_pool.query(sql, (batch_size,))
+                users = self.db_pool.execute_query(sql, {'limit': batch_size})
             except Exception as e:
                 self.logger.warning(f"查询活跃用户失败: {str(e)}")
                 users = []
@@ -242,7 +242,7 @@ class TaskScheduler:
             # 清理过期的推荐结果
             expired_time = datetime.now() - timedelta(hours=self.database_config['recommendation_expire_hours'])
             sql = "DELETE FROM user_recommendations WHERE expire_time < %s"
-            self.db_pool.execute(sql, (expired_time,))
+            self.db_pool.execute_update(sql, {'expire_time': expired_time})
             
             # 保留每个用户最近的N条推荐记录
             max_rec = self.database_config['max_recommendations_per_user']
@@ -257,7 +257,7 @@ class TaskScheduler:
                     ) AS latest_recs
                 )
                 """
-                self.db_pool.execute(sql, (max_rec,))
+                self.db_pool.execute_update(sql, {'limit': max_rec})
             
             # 清理过旧的历史数据
             cleanup_days = self.database_config['cleanup_days']
@@ -265,11 +265,11 @@ class TaskScheduler:
             
             # 清理热点历史
             sql = "DELETE FROM hot_topics_history WHERE generation_time < %s"
-            self.db_pool.execute(sql, (old_time,))
+            self.db_pool.execute_update(sql, {'generation_time': old_time})
             
             # 清理曝光记录
             sql = "DELETE FROM post_exposures WHERE exposure_time < %s"
-            self.db_pool.execute(sql, (old_time,))
+            self.db_pool.execute_update(sql, {'exposure_time': old_time})
             
             self.logger.info("数据清理完成")
         except Exception as e:
