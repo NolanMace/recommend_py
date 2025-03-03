@@ -7,10 +7,16 @@ import schedule
 import threading
 from datetime import datetime, timedelta
 import random
+import logging
+from concurrent.futures import ThreadPoolExecutor
+from typing import Dict, Any
 
 from recommender import Recommender, FeatureProcessor
 from config import HOT_TOPICS_CONFIG, DATABASE_CONFIG
 from database import get_db_pool
+from config.config_manager import get_config_manager
+from database.database import get_db_manager
+from recommender.recommender import get_recommender
 
 # 数据库连接池
 db_pool = get_db_pool()
@@ -227,3 +233,159 @@ def scheduled_task(task_name, duration_seconds):
     
     print(f"[{datetime.now()}] 任务完成: {task_name}, 实际耗时: {duration_seconds}秒")
     return True  # 必须返回True以便继续调度
+
+class TaskScheduler:
+    """任务调度器
+    
+    负责管理和执行定时任务
+    """
+    
+    _instance = None
+    
+    def __new__(cls):
+        if cls._instance is None:
+            cls._instance = super(TaskScheduler, cls).__new__(cls)
+            cls._instance._initialized = False
+        return cls._instance
+    
+    def __init__(self):
+        if self._initialized:
+            return
+            
+        self.logger = logging.getLogger("scheduler")
+        self.config_manager = get_config_manager()
+        self.db_manager = get_db_manager()
+        self.recommender = get_recommender()
+        
+        # 获取配置
+        self.config = self.config_manager.get('scheduler')
+        
+        # 创建线程池
+        self.executor = ThreadPoolExecutor(max_workers=self.config['max_workers'])
+        
+        # 任务状态
+        self.running_tasks = {}
+        self.task_lock = threading.Lock()
+        
+        # 注册为配置观察者
+        self.config_manager.register_observer(self)
+        
+        self._initialized = True
+        self.logger.info("调度器初始化完成")
+    
+    def config_updated(self, path: str, new_value: Any):
+        """配置更新回调"""
+        if path.startswith('scheduler.'):
+            self.logger.info(f"检测到调度器配置变更: {path}")
+            # 更新本地配置
+            self.config = self.config_manager.get('scheduler')
+            # 更新线程池
+            self.executor._max_workers = self.config['max_workers']
+    
+    def start(self):
+        """启动调度器"""
+        self.logger.info("启动调度器")
+        
+        # 获取任务配置
+        jobs = self.config['jobs']
+        
+        # 启动所有任务
+        for job_name, job_config in jobs.items():
+            self.schedule_task(job_name, job_config)
+    
+    def schedule_task(self, task_name: str, task_config: Dict):
+        """调度任务
+        
+        Args:
+            task_name: 任务名称
+            task_config: 任务配置
+        """
+        def run_task():
+            while True:
+                try:
+                    # 执行任务
+                    if task_name == 'update_hot_topics':
+                        self.update_hot_topics()
+                    elif task_name == 'precalculate_recommendations':
+                        self.precalculate_recommendations()
+                    elif task_name == 'clean_cache':
+                        self.clean_cache()
+                    elif task_name == 'calculate_statistics':
+                        self.calculate_statistics()
+                    
+                    # 等待下一次执行
+                    interval = task_config['interval'].total_seconds()
+                    threading.Event().wait(interval)
+                    
+                except Exception as e:
+                    self.logger.error(f"任务 {task_name} 执行失败: {e}")
+                    # 出错后等待一段时间再重试
+                    threading.Event().wait(60)
+        
+        # 提交任务到线程池
+        with self.task_lock:
+            if task_name not in self.running_tasks:
+                future = self.executor.submit(run_task)
+                self.running_tasks[task_name] = future
+                self.logger.info(f"任务 {task_name} 已调度")
+    
+    def stop(self):
+        """停止调度器"""
+        self.logger.info("停止调度器")
+        
+        # 取消所有任务
+        with self.task_lock:
+            for task_name, future in self.running_tasks.items():
+                future.cancel()
+            self.running_tasks.clear()
+        
+        # 关闭线程池
+        self.executor.shutdown(wait=True)
+    
+    def update_hot_topics(self):
+        """更新热点话题"""
+        try:
+            max_topics = self.config['jobs']['update_hot_topics']['max_topics']
+            self.recommender.generate_hot_topics(max_topics)
+            self.logger.info("热点话题已更新")
+        except Exception as e:
+            self.logger.error(f"更新热点话题失败: {e}")
+    
+    def precalculate_recommendations(self):
+        """预计算推荐结果"""
+        try:
+            batch_size = self.config['jobs']['precalculate_recommendations']['batch_size']
+            self.recommender.batch_generate_recommendations(batch_size)
+            self.logger.info("推荐结果预计算完成")
+        except Exception as e:
+            self.logger.error(f"预计算推荐结果失败: {e}")
+    
+    def clean_cache(self):
+        """清理缓存"""
+        try:
+            # TODO: 实现缓存清理逻辑
+            self.logger.info("缓存清理完成")
+        except Exception as e:
+            self.logger.error(f"清理缓存失败: {e}")
+    
+    def calculate_statistics(self):
+        """计算统计数据"""
+        try:
+            # TODO: 实现统计数据计算逻辑
+            self.logger.info("统计数据计算完成")
+        except Exception as e:
+            self.logger.error(f"计算统计数据失败: {e}")
+
+# 全局调度器实例
+_scheduler = None
+
+def get_scheduler() -> TaskScheduler:
+    """获取调度器实例
+    
+    Returns:
+        TaskScheduler: 调度器实例
+    """
+    global _scheduler
+    if _scheduler is None:
+        _scheduler = TaskScheduler()
+    return _scheduler

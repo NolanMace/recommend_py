@@ -10,8 +10,9 @@ import logging
 from functools import wraps
 from datetime import datetime
 import threading
+from typing import Dict, List, Any, Optional
 
-from config import MYSQL_CONFIG, POOL_CONFIG
+from config.config_manager import get_config_manager
 
 # 配置日志
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
@@ -30,6 +31,161 @@ query_stats = {
     'transactions': 0
 }
 stats_lock = threading.Lock()
+
+class DatabaseManager:
+    """数据库管理器
+    
+    负责管理数据库连接池和执行数据库操作
+    """
+    
+    _instance = None
+    
+    def __new__(cls):
+        if cls._instance is None:
+            cls._instance = super(DatabaseManager, cls).__new__(cls)
+            cls._instance._initialized = False
+        return cls._instance
+    
+    def __init__(self):
+        if self._initialized:
+            return
+            
+        self.logger = logging.getLogger("database_manager")
+        self.config_manager = get_config_manager()
+        
+        # 获取MySQL配置
+        mysql_config = self.config_manager.get('mysql')
+        pool_config = self.config_manager.get('pool')
+        
+        # 创建连接池
+        self.pool = PooledDB(
+            creator=pymysql,
+            **mysql_config,
+            **pool_config
+        )
+        
+        # 注册为配置观察者
+        self.config_manager.register_observer(self)
+        
+        self._initialized = True
+        self.logger.info("数据库管理器初始化完成")
+    
+    def config_updated(self, path: str, new_value: Any):
+        """配置更新回调
+        
+        当MySQL或连接池配置发生变化时重新初始化连接池
+        """
+        if path.startswith('mysql.') or path.startswith('pool.'):
+            self.logger.info(f"检测到数据库配置变更: {path}")
+            try:
+                # 关闭现有连接池
+                if hasattr(self, 'pool'):
+                    self.pool.close()
+                
+                # 重新创建连接池
+                mysql_config = self.config_manager.get('mysql')
+                pool_config = self.config_manager.get('pool')
+                self.pool = PooledDB(
+                    creator=pymysql,
+                    **mysql_config,
+                    **pool_config
+                )
+                self.logger.info("数据库连接池已重新初始化")
+            except Exception as e:
+                self.logger.error(f"重新初始化数据库连接池失败: {e}")
+    
+    def get_connection(self):
+        """获取数据库连接
+        
+        Returns:
+            Connection: 数据库连接对象
+        """
+        return self.pool.connection()
+    
+    def execute_query(self, sql: str, params: tuple = None) -> List[Dict]:
+        """执行查询语句
+        
+        Args:
+            sql: SQL查询语句
+            params: 查询参数
+            
+        Returns:
+            List[Dict]: 查询结果列表
+        """
+        with self.get_connection() as conn:
+            with conn.cursor() as cursor:
+                cursor.execute(sql, params)
+                return cursor.fetchall()
+    
+    def execute_update(self, sql: str, params: tuple = None) -> int:
+        """执行更新语句
+        
+        Args:
+            sql: SQL更新语句
+            params: 更新参数
+            
+        Returns:
+            int: 影响的行数
+        """
+        with self.get_connection() as conn:
+            with conn.cursor() as cursor:
+                affected_rows = cursor.execute(sql, params)
+                conn.commit()
+                return affected_rows
+    
+    def execute_batch(self, sql: str, params_list: List[tuple]) -> int:
+        """批量执行SQL语句
+        
+        Args:
+            sql: SQL语句
+            params_list: 参数列表
+            
+        Returns:
+            int: 影响的行数
+        """
+        total_affected = 0
+        with self.get_connection() as conn:
+            with conn.cursor() as cursor:
+                for params in params_list:
+                    affected_rows = cursor.execute(sql, params)
+                    total_affected += affected_rows
+                conn.commit()
+        return total_affected
+    
+    def execute_transaction(self, operations: List[tuple]) -> bool:
+        """执行事务
+        
+        Args:
+            operations: [(sql, params), ...] 操作列表
+            
+        Returns:
+            bool: 事务是否成功
+        """
+        with self.get_connection() as conn:
+            try:
+                with conn.cursor() as cursor:
+                    for sql, params in operations:
+                        cursor.execute(sql, params)
+                conn.commit()
+                return True
+            except Exception as e:
+                self.logger.error(f"事务执行失败: {e}")
+                conn.rollback()
+                return False
+
+# 全局数据库管理器实例
+_db_manager = None
+
+def get_db_manager() -> DatabaseManager:
+    """获取数据库管理器实例
+    
+    Returns:
+        DatabaseManager: 数据库管理器实例
+    """
+    global _db_manager
+    if _db_manager is None:
+        _db_manager = DatabaseManager()
+    return _db_manager
 
 def get_db_pool():
     """获取数据库连接池（懒加载）"""

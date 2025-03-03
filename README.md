@@ -136,77 +136,72 @@
 
 ## 安装与配置
 
-### 安装步骤
+### 系统要求
 
-1. 克隆代码库
+- **Python**: 3.8+
+- **MySQL**: 5.7+
 
-   ```bash
-   git clone https://github.com/yourusername/recommend_py.git
-   cd recommend_py
-   ```
+### 依赖安装
 
-2. 安装依赖
+```bash
+# 安装基础依赖
+python3 -m pip install numpy pandas schedule pymysql -i https://pypi.tuna.tsinghua.edu.cn/simple
 
-   ```bash
-   pip install -r requirements.txt
-   ```
-
-3. 创建 MySQL 数据库
-
-   ```bash
-   mysql -u root -p
-   CREATE DATABASE recommend_system CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
-   mysql -u root -p recommend_system < schema_update.sql
-   ```
-
-4. 配置数据库连接
-   创建或编辑 `config/config.yaml` 文件（系统会先使用默认配置）
-
-   ```yaml
-   database:
-     mysql:
-       host: localhost
-       port: 3306
-       user: your_username
-       password: your_password
-       database: recommend_system
-   ```
-
-5. 初始化数据库表结构
-
-   ```bash
-   python app.py --init-db
-   ```
-
-6. 运行应用
-
-   ```bash
-   # 运行后台服务
-   python app.py
-
-   # 或运行API服务
-   ./run_api.sh
-   ```
-
-### YAML 配置示例
-
-**调整缓存大小**:
-
-```yaml
-cache:
-  memory:
-    max_size: 10000 # 缓存项数量上限
-    cleanup_interval: 300 # 清理间隔（秒）
+# 安装其他项目依赖
+python3 -m pip install -r requirements.txt -i https://pypi.tuna.tsinghua.edu.cn/simple
 ```
 
-**修改连接池设置**:
+### 数据库配置
 
-```yaml
-database:
-  mysql:
-    pool_size: 10
-    max_overflow: 20
-    timeout: 30
+编辑 `config/config.py` 文件，修改数据库连接信息：
+
+```python
+MYSQL_CONFIG = {
+    'host': 'localhost',      # 数据库地址
+    'port': 3306,            # 数据库端口
+    'user': 'root',          # 数据库用户名
+    'password': 'root',      # 数据库密码
+    'database': 'recommend_system',  # 数据库名
+    'charset': 'utf8mb4',    # 字符集
+    'autocommit': True,      # 自动提交
+    'connect_timeout': 10,   # 连接超时（秒）
+    'cursorclass': 'DictCursor'  # 返回字典格式结果
+}
+```
+
+### 系统配置
+
+所有系统配置都集中在 `config/config.py` 文件中，包括：
+
+- 数据库配置（MYSQL_CONFIG）
+- 连接池配置（POOL_CONFIG）
+- 缓存配置（CACHE_CONFIG）
+- 推荐引擎配置（RECOMMENDER_CONFIG）
+- 曝光池配置（EXPOSURE_CONFIG）
+- 任务调度配置（SCHEDULER_CONFIG）
+- 日志配置（LOGGING_CONFIG）
+- API 配置（API_CONFIG）
+- 监控配置（MONITOR_CONFIG）
+
+配置文件使用 Python 字典格式，便于修改和维护。所有配置项都有详细的注释说明。
+
+### 启动服务
+
+```bash
+# 初始化数据库（首次运行需要）
+python3 app.py --init-db
+
+# 启动服务
+python3 app.py
+
+# 调试模式启动
+python3 app.py --debug
+
+# 执行测试任务
+python3 app.py --run-tasks
+
+# 禁用调度器启动
+python3 app.py --no-scheduler
 ```
 
 ## 测试工具
@@ -330,47 +325,65 @@ function loadMoreRecommendations() {
 
 ```
 recommend_system/
+├── main.py                      # 主应用入口
+├── README.md                    # 项目说明文档
+├── requirements.txt             # 项目依赖列表
 │
-├── app.py                      # 主应用入口
-├── run_api.sh                  # API服务启动脚本
-├── test_recommender.py         # 推荐功能测试工具
-├── README.md                   # 项目说明
-├── schema_update.sql           # 数据库结构文件
-├── requirements.txt            # 依赖列表
-│
-├── api/                        # API接口目录
+├── api/                         # API接口模块
 │   └── routes.py               # API路由定义
 │
-├── config/                     # 配置目录
+├── cache/                       # 缓存模块
+│   └── cache.py                # LRU缓存实现
+│
+├── config/                      # 配置模块
+│   ├── config.py               # 配置管理器
 │   ├── default_config.yaml     # 默认配置文件
-│   └── config.yaml             # 用户自定义配置(可选)
+│   └── config.yaml             # 用户自定义配置
 │
-├── recommender/                # 推荐模块
-│   └── engine.py               # 推荐引擎实现
+├── database/                    # 数据库模块
+│   ├── database.py             # 数据库管理器
+│   ├── migrate_to_db.py        # 数据库迁移工具
+│   └── schema_update.sql       # 数据库结构定义
 │
-├── exposure/                   # 曝光池模块
+├── exposure/                    # 曝光池模块
 │   └── pool_manager.py         # 曝光池管理实现
 │
-├── hot_topics/                 # 热点话题模块
-│   └── generator.py            # 热点话题生成实现
+├── hot_topics/                  # 热点话题模块
+│   └── generator.py            # 热点话题生成器
 │
-├── scheduler/                  # 任务调度模块
-│   └── task_scheduler.py       # 任务调度器实现
+├── recommender/                 # 推荐引擎模块
+│   └── recommender.py          # 推荐算法实现
 │
-├── cache/                      # 缓存模块
-│   ├── cache_manager.py        # 缓存管理器
-│   └── lru_cache.py            # LRU缓存实现
+├── scheduler/                   # 任务调度模块
+│   └── scheduler.py            # 任务调度器实现
 │
-├── database/                   # 数据库模块
-│   └── db_manager.py           # 数据库连接管理
+├── scripts/                     # 脚本工具目录
+│   └── upline.sh               # 部署脚本
+│
+├── tests/                      # 测试目录
+│   ├── test_recommender.py     # 推荐功能测试
+│   └── test_infinite_scroll.py # 无限滚动测试
 │
 ├── utils/                      # 工具模块
-│   ├── config_manager.py       # 配置加载工具
-│   └── logger.py               # 日志工具
+│   └── monitor.py             # 系统监控工具
 │
 └── logs/                       # 日志目录
-    └── ...                     # 日志文件
+    └── *.log                   # 日志文件
 ```
+
+### 模块说明
+
+- **api**: 提供 RESTful API 接口，处理外部请求
+- **cache**: 实现基于 LRU 的内存缓存系统
+- **config**: 管理系统配置和环境设置
+- **database**: 处理数据库连接和数据访问
+- **exposure**: 管理内容曝光和展示策略
+- **hot_topics**: 处理热点话题的发现和管理
+- **recommender**: 核心推荐算法实现
+- **scheduler**: 管理定时任务和调度
+- **scripts**: 部署和维护脚本
+- **tests**: 单元测试和集成测试
+- **utils**: 通用工具和监控组件
 
 ## 后续优化方向
 
