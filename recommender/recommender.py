@@ -325,7 +325,8 @@ class FeatureProcessor:
             
             # 初始化TF-IDF向量器
             try:
-                self.tfidf = TfidfVectorizer(**config.TFIDF_PARAMS)
+                self.recommender_config = RecommenderConfig()
+                self.tfidf = TfidfVectorizer(**self.recommender_config.TFIDF_PARAMS)
                 self.feature_names = None
                 self.posts = None
                 self.tfidf_matrix = None
@@ -406,7 +407,7 @@ class FeatureProcessor:
                 if not self.posts.empty:
                     # 训练TF-IDF
                     feature_texts = self.posts['features'].fillna('')
-                    self.tfidf = TfidfVectorizer(**config.TFIDF_PARAMS)
+                    self.tfidf = TfidfVectorizer(**self.recommender_config.TFIDF_PARAMS)
                     self.tfidf_matrix = self.tfidf.fit_transform(feature_texts)
                     self.feature_names = self.tfidf.get_feature_names_out()
                     
