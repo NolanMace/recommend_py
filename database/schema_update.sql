@@ -524,3 +524,20 @@ BEGIN
     ANALYZE TABLE posts, users, comments, user_views, post_likes, post_collects;
 END //
 DELIMITER ;
+
+-- 帖子浏览记录表
+CREATE TABLE IF NOT EXISTS post_views (
+    id BIGINT AUTO_INCREMENT PRIMARY KEY COMMENT '主键ID',
+    user_id BIGINT NOT NULL COMMENT '用户ID',
+    post_id BIGINT NOT NULL COMMENT '帖子ID',
+    view_time DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '浏览时间',
+    duration INT NOT NULL DEFAULT 0 COMMENT '浏览时长(秒)',
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
+    updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
+    
+    -- 索引
+    INDEX idx_user_post (user_id, post_id) COMMENT '用户帖子联合索引',
+    INDEX idx_post_time (post_id, view_time) COMMENT '帖子时间索引',
+    INDEX idx_user_time (user_id, view_time) COMMENT '用户时间索引',
+    INDEX idx_created_at (created_at) COMMENT '创建时间索引'
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='帖子浏览记录表';
