@@ -319,11 +319,13 @@ class Recommender:
     def generate_hot_topics(self, time_window: timedelta = None) -> List[Dict]:
         """生成热点话题
         
+        通过分析热门帖子内容，提取主题，生成当前热点话题
+        
         Args:
             time_window: 时间窗口，默认使用配置中的值
             
         Returns:
-            List[Dict]: 热点话题列表，每个话题包含id、title、score等信息
+            List[Dict]: 热点话题列表，每个话题包含topic_title、posts、summary等信息
         """
         if time_window is None:
             time_window = HOT_TOPICS_CONFIG['time_window']
@@ -337,51 +339,189 @@ class Recommender:
             
             # 查询热门帖子
             sql = """
-            SELECT 
-                p.id,
-                p.title,
-                p.content,
-                p.created_at,
-                p.view_count,
-                p.like_count,
-                p.comment_count,
-                p.heat_score
-            FROM posts p
-            WHERE p.created_at BETWEEN %s AND %s
-                AND p.status = 1
-            HAVING p.heat_score >= %s
-            ORDER BY p.heat_score DESC
+            WITH ranked_posts AS (
+                SELECT 
+                    p.post_id,
+                    p.title,
+                    p.content,
+                    p.created_at,
+                    p.view_count,
+                    p.like_count,
+                    p.comment_count,
+                    p.heat_score,
+                    GROUP_CONCAT(DISTINCT c.content SEPARATOR ' ') as comment_contents,
+                    COUNT(DISTINCT c.comment_id) as comment_count,
+                    COUNT(DISTINCT l.user_id) as like_count,
+                    COUNT(DISTINCT v.user_id) as view_count,
+                    ROW_NUMBER() OVER (PARTITION BY DATE(p.created_at) ORDER BY p.heat_score DESC) as daily_rank
+                FROM posts p
+                LEFT JOIN comments c ON p.post_id = c.post_id 
+                    AND c.created_at BETWEEN %s AND %s
+                LEFT JOIN post_likes l ON p.post_id = l.post_id
+                    AND l.created_at BETWEEN %s AND %s
+                LEFT JOIN post_views v ON p.post_id = v.post_id
+                    AND v.view_time BETWEEN %s AND %s
+                WHERE p.created_at BETWEEN %s AND %s
+                    AND p.status = 1
+                GROUP BY p.post_id, p.title, p.content, p.created_at,
+                         p.view_count, p.like_count, p.comment_count, p.heat_score
+            )
+            SELECT * FROM ranked_posts 
+            WHERE daily_rank <= 10  -- 每天取前10篇热门帖子
+            ORDER BY heat_score DESC
             LIMIT %s
             """
             
             params = (
+                start_time, end_time,  # comments
+                start_time, end_time,  # likes
+                start_time, end_time,  # views
                 start_time, end_time,  # posts
-                HOT_TOPICS_CONFIG['min_score'],
-                HOT_TOPICS_CONFIG['max_topics']
+                HOT_TOPICS_CONFIG['max_topics'] * 3  # 获取更多帖子用于分析
             )
             
             hot_posts = self.db_manager.execute_query(sql, params)
             
-            # 计算热度分数并格式化结果
-            topics = []
+            if not hot_posts:
+                self.logger.warning("没有找到热门帖子")
+                return []
+            
+            # 按日期分组帖子
+            daily_posts = {}
             for post in hot_posts:
-                topics.append({
-                    'id': post['id'],
-                    'title': post['title'],
-                    'content': post['content'][:200],  # 截取前200个字符
-                    'score': post['heat_score'],
-                    'view_count': post['view_count'],
-                    'like_count': post['like_count'],
-                    'comment_count': post['comment_count'],
-                    'created_at': post['created_at'].strftime('%Y-%m-%d %H:%M:%S')
-                })
+                date = post['created_at'].date()
+                if date not in daily_posts:
+                    daily_posts[date] = []
+                daily_posts[date].append(post)
+            
+            # 生成热点话题
+            topics = []
+            for date, posts in daily_posts.items():
+                # 按相似内容分组
+                content_groups = self._group_similar_posts(posts)
+                
+                for group in content_groups:
+                    if len(group) < 2:  # 忽略单个帖子
+                        continue
+                        
+                    # 按热度排序
+                    group.sort(key=lambda x: x['heat_score'], reverse=True)
+                    
+                    # 生成话题摘要
+                    summary = self._generate_topic_summary(group)
+                    
+                    # 计算总热度
+                    total_heat = sum(p['heat_score'] for p in group)
+                    
+                    topics.append({
+                        'topic_title': summary,
+                        'date': date.strftime('%Y-%m-%d'),
+                        'heat_score': total_heat,
+                        'post_count': len(group),
+                        'total_views': sum(p['view_count'] for p in group),
+                        'total_likes': sum(p['like_count'] for p in group),
+                        'total_comments': sum(p['comment_count'] for p in group),
+                        'posts': [{
+                            'id': post['post_id'],
+                            'title': post['title'],
+                            'content': post['content'][:200],
+                            'view_count': post['view_count'],
+                            'like_count': post['like_count'],
+                            'comment_count': post['comment_count'],
+                            'created_at': post['created_at'].strftime('%Y-%m-%d %H:%M:%S')
+                        } for post in group[:5]]  # 每个话题最多显示5个相关帖子
+                    })
+            
+            # 按总热度排序
+            topics.sort(key=lambda x: x['heat_score'], reverse=True)
+            
+            # 限制返回的话题数量
+            topics = topics[:HOT_TOPICS_CONFIG['max_topics']]
             
             self.logger.info(f"热点话题生成完成，共{len(topics)}个话题")
             return topics
             
         except Exception as e:
             self.logger.error(f"生成热点话题失败: {str(e)}")
+            import traceback
+            self.logger.error(f"错误详情: {traceback.format_exc()}")
             return []
+            
+    def _group_similar_posts(self, posts: List[Dict]) -> List[List[Dict]]:
+        """将相似内容的帖子分组
+        
+        Args:
+            posts: 帖子列表
+            
+        Returns:
+            List[List[Dict]]: 分组后的帖子列表
+        """
+        if not posts:
+            return []
+            
+        # 计算帖子间的相似度
+        def calc_similarity(post1, post2):
+            text1 = f"{post1['title']} {post1['content']}"
+            text2 = f"{post2['title']} {post2['content']}"
+            words1 = set(text1.split())
+            words2 = set(text2.split())
+            common_words = words1.intersection(words2)
+            return len(common_words) / (len(words1) + len(words2) - len(common_words))
+        
+        # 使用层次聚类
+        groups = []
+        used = set()
+        
+        for i, post in enumerate(posts):
+            if post['post_id'] in used:
+                continue
+                
+            # 创建新组
+            group = [post]
+            used.add(post['post_id'])
+            
+            # 查找相似帖子
+            for other in posts[i+1:]:
+                if other['post_id'] in used:
+                    continue
+                    
+                # 计算与组内所有帖子的平均相似度
+                avg_sim = sum(calc_similarity(p, other) for p in group) / len(group)
+                if avg_sim > 0.3:  # 相似度阈值
+                    group.append(other)
+                    used.add(other['post_id'])
+            
+            if len(group) > 1:  # 只保留有多个帖子的组
+                groups.append(group)
+        
+        return groups
+        
+    def _generate_topic_summary(self, posts: List[Dict]) -> str:
+        """生成话题摘要
+        
+        Args:
+            posts: 相关帖子列表
+            
+        Returns:
+            str: 话题摘要
+        """
+        # 使用最热门帖子的标题作为基础
+        base_title = posts[0]['title']
+        
+        # 如果组内帖子标题相似度高，直接使用最热门的标题
+        titles = [p['title'] for p in posts]
+        if len(set(titles)) < len(posts) * 0.7:  # 70%的标题相似
+            return base_title
+            
+        # 否则生成概括性标题
+        common_words = set.intersection(*[set(p['title'].split()) for p in posts])
+        if common_words:
+            # 使用共同词构建标题
+            summary = ' '.join(sorted(common_words, key=lambda x: base_title.find(x)))
+            if len(summary) > 10:  # 确保摘要有意义
+                return summary
+        
+        return base_title
 
     def batch_generate_recommendations(self, batch_size: int = 100) -> None:
         """批量生成用户推荐
