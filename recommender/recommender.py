@@ -462,9 +462,31 @@ class FeatureProcessor:
                     # 训练TF-IDF
                     self.logger.debug("开始训练TF-IDF向量器...")
                     feature_texts = self.posts['features'].fillna('')
-                    self.tfidf = TfidfVectorizer(**self.recommender_config.TFIDF_PARAMS)
-                    self.tfidf_matrix = self.tfidf.fit_transform(feature_texts)
+                    
+                    # 验证文本数据
+                    valid_texts = [text for text in feature_texts if len(str(text).strip()) > 0]
+                    if not valid_texts:
+                        self.logger.error("没有有效的文本数据用于训练")
+                        raise ValueError("Empty text data for TF-IDF training")
+                        
+                    self.logger.info(f"使用 {len(valid_texts)} 条有效文本进行训练")
+                    
+                    # 配置TF-IDF向量器
+                    tfidf_params = self.recommender_config.TFIDF_PARAMS.copy()
+                    tfidf_params.update({
+                        'min_df': 1,  # 降低最小文档频率要求
+                        'stop_words': None,  # 不使用停用词
+                        'strip_accents': 'unicode',  # 处理重音字符
+                        'lowercase': True,  # 转换为小写
+                        'analyzer': 'word',  # 使用词级别分析
+                        'token_pattern': r'(?u)\b\w+\b'  # 匹配任何单词字符
+                    })
+                    
+                    self.tfidf = TfidfVectorizer(**tfidf_params)
+                    self.tfidf_matrix = self.tfidf.fit_transform(valid_texts)
                     self.feature_names = self.tfidf.get_feature_names_out()
+                    
+                    self.logger.info(f"TF-IDF模型训练完成，特征数量: {len(self.feature_names)}")
                     
                     # 保存模型
                     try:

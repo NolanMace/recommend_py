@@ -55,13 +55,29 @@ class DatabaseManager:
         self.config_manager = get_config_manager()
         
         # 获取MySQL配置
-        mysql_config = self.config_manager.get('mysql')
-        pool_config = self.config_manager.get('pool')
+        mysql_config = MYSQL_CONFIG.copy()  # 使用默认配置作为基础
+        pool_config = POOL_CONFIG.copy()    # 使用默认配置作为基础
+        
+        # 从配置管理器获取配置并更新
+        db_settings = self.config_manager.get('mysql', {})
+        pool_settings = self.config_manager.get('pool', {})
+        
+        mysql_config.update(db_settings)
+        pool_config.update(pool_settings)
+        
+        self.logger.info(f"MySQL配置: {mysql_config}")
+        self.logger.info(f"连接池配置: {pool_config}")
         
         # 创建连接池
         self.pool = PooledDB(
             creator=pymysql,
-            **mysql_config,
+            host=mysql_config.get('host', 'localhost'),
+            port=mysql_config.get('port', 3306),
+            user=mysql_config.get('user', 'root'),
+            password=mysql_config.get('password', ''),
+            database=mysql_config.get('database', ''),
+            charset=mysql_config.get('charset', 'utf8mb4'),
+            cursorclass=DictCursor if mysql_config.get('cursorclass') == 'DictCursor' else None,
             **pool_config
         )
         
