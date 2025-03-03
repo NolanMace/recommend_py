@@ -15,19 +15,19 @@ MYSQL_CONFIG = {
     'host': 'localhost',      # 数据库地址
     'port': 3306,            # 数据库端口
     'user': 'root',          # 数据库用户名
-    'password': 'root',      # 数据库密码
+    'password': 'your_password',      # 数据库密码
     'database': 'recommend_system',  # 数据库名
     'charset': 'utf8mb4',    # 字符集
     'autocommit': True,      # 自动提交
-    'connect_timeout': 10,   # 连接超时（秒）
+    'connect_timeout': 30,   # 连接超时（秒）增加到30秒
     'cursorclass': 'DictCursor'  # 返回字典格式结果
 }
 
 # 数据库连接池配置
 POOL_CONFIG = {
-    'mincached': 2,          # 初始空闲连接数
-    'maxcached': 5,          # 最大空闲连接数
-    'maxconnections': 20,    # 最大连接数
+    'mincached': 1,          # 初始空闲连接数减少到1
+    'maxcached': 3,          # 最大空闲连接数减少到3
+    'maxconnections': 10,    # 最大连接数减少到10
     'blocking': True         # 连接池满时是否阻塞
 }
 
@@ -142,7 +142,7 @@ LOGGING_CONFIG = {
             'level': 'INFO',
             'formatter': 'standard',
             'class': 'logging.handlers.RotatingFileHandler',
-            'filename': os.path.join(LOG_DIR, 'recommend_system.log'),
+            'filename': '/var/log/recommend_system/recommend_system.log',  # 修改为服务器日志路径
             'maxBytes': 10485760,  # 10MB
             'backupCount': 5
         }
