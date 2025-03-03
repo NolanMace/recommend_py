@@ -13,6 +13,7 @@ import threading
 from typing import Dict, List, Any, Optional
 
 from config.config_manager import get_config_manager
+from config.config import MYSQL_CONFIG, POOL_CONFIG
 
 # 配置日志
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
@@ -192,41 +193,53 @@ def get_db_pool():
     global db_pool
     if db_pool is None:
         with pool_lock:
-            print(f"[{datetime.now()}] 准备获取数据库连接池锁...")
+            logger.info("准备获取数据库连接池锁...")
             if db_pool is None:
                 try:
-                    print(f"[{datetime.now()}] 开始初始化数据库连接池...")
-                    print(f"[{datetime.now()}] MySQL配置: {MYSQL_CONFIG}")
-                    print(f"[{datetime.now()}] 连接池配置: {POOL_CONFIG}")
+                    logger.info("开始初始化数据库连接池...")
+                    config_manager = get_config_manager()
+                    
+                    # 获取配置，如果config.py中的配置无效则使用ConfigManager中的默认值
+                    mysql_config = MYSQL_CONFIG.copy()
+                    pool_config = POOL_CONFIG.copy()
+                    
+                    # 使用ConfigManager的配置覆盖默认值
+                    db_settings = config_manager.get('mysql', {})
+                    pool_settings = config_manager.get('pool', {})
+                    
+                    mysql_config.update(db_settings)
+                    pool_config.update(pool_settings)
+                    
+                    logger.info(f"MySQL配置: {mysql_config}")
+                    logger.info(f"连接池配置: {pool_config}")
                     
                     # 创建连接池
-                    print(f"[{datetime.now()}] 尝试连接MySQL服务器: {MYSQL_CONFIG.get('host', 'localhost')}:{MYSQL_CONFIG.get('port', 3306)}")
+                    logger.info(f"尝试连接MySQL服务器: {mysql_config.get('host', 'localhost')}:{mysql_config.get('port', 3306)}")
                     db_pool = DBPool(
-                        host=MYSQL_CONFIG.get('host', 'localhost'),
-                        port=MYSQL_CONFIG.get('port', 3306),
-                        user=MYSQL_CONFIG.get('user', 'root'),
-                        password=MYSQL_CONFIG.get('password', ''),
-                        database=MYSQL_CONFIG.get('database', ''),
-                        charset=MYSQL_CONFIG.get('charset', 'utf8mb4'),
-                        cursorclass=DictCursor if MYSQL_CONFIG.get('cursorclass') == 'DictCursor' else None,
-                        **POOL_CONFIG
+                        host=mysql_config.get('host', 'localhost'),
+                        port=mysql_config.get('port', 3306),
+                        user=mysql_config.get('user', 'root'),
+                        password=mysql_config.get('password', ''),
+                        database=mysql_config.get('database', ''),
+                        charset=mysql_config.get('charset', 'utf8mb4'),
+                        cursorclass=DictCursor if mysql_config.get('cursorclass') == 'DictCursor' else None,
+                        **pool_config
                     )
-                    print(f"[{datetime.now()}] 数据库连接池初始化完成，测试连接...")
+                    logger.info("数据库连接池初始化完成，测试连接...")
                     
                     # 测试连接
                     try:
                         db_pool.query("SELECT 1")
-                        print(f"[{datetime.now()}] 数据库连接测试成功")
+                        logger.info("数据库连接测试成功")
                     except Exception as e:
-                        print(f"[{datetime.now()}] 数据库连接测试失败: {str(e)}")
+                        logger.error(f"数据库连接测试失败: {str(e)}")
                         raise
                         
                     logger.info("数据库连接池初始化成功")
                 except Exception as e:
-                    print(f"[{datetime.now()}] 数据库连接池初始化失败: {str(e)}")
-                    import traceback
-                    print(f"[{datetime.now()}] 错误详情: {traceback.format_exc()}")
                     logger.error(f"数据库连接池初始化失败: {str(e)}")
+                    import traceback
+                    logger.error(f"错误详情: {traceback.format_exc()}")
                     raise
     return db_pool
 

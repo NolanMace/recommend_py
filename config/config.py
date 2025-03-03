@@ -12,11 +12,11 @@ LOG_DIR = os.path.join(BASE_DIR, 'logs')
 
 # 数据库配置
 MYSQL_CONFIG = {
-    'host': 'localhost',      # 数据库地址
+    'host': 'rm-bp1w3lxy9t0790m4j.mysql.rds.aliyuncs.com',      # 数据库地址
     'port': 3306,            # 数据库端口
-    'user': 'root',          # 数据库用户名
-    'password': 'your_password',      # 数据库密码
-    'database': 'recommend_system',  # 数据库名
+    'user': 'hwn205',          # 数据库用户名
+    'password': 'Hwn571869617+',      # 数据库密码
+    'database': 'pink',  # 数据库名
     'charset': 'utf8mb4',    # 字符集
     'autocommit': True,      # 自动提交
     'connect_timeout': 30,   # 连接超时（秒）增加到30秒
