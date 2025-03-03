@@ -97,13 +97,27 @@ db_pool = get_db_pool()
 
 # 定义热点话题配置
 HOT_TOPICS_CONFIG = {
-    'max_topics': config.config_manager.get('hot_topics_max', 50),
-    'min_score': config.config_manager.get('hot_topics_min_score', 0.1),
-    'time_window': timedelta(days=config.config_manager.get('hot_topics_window_days', 7))
+    'max_topics': 50,  # 默认值
+    'min_score': 0.1,  # 默认值
+    'time_window': timedelta(days=7)  # 默认值
 }
 
+# 尝试从配置中更新值
+try:
+    HOT_TOPICS_CONFIG.update({
+        'max_topics': config.config_manager.get('hot_topics_max', 50),
+        'min_score': config.config_manager.get('hot_topics_min_score', 0.1),
+        'time_window': timedelta(days=config.config_manager.get('hot_topics_window_days', 7))
+    })
+except Exception as e:
+    logger.warning(f"加载热点话题配置失败，使用默认值: {str(e)}")
+
 # 并行处理的工作线程数
-MAX_WORKERS = config.config_manager.get('max_workers', 4)
+MAX_WORKERS = 4  # 默认值
+try:
+    MAX_WORKERS = config.config_manager.get('max_workers', 4)
+except Exception as e:
+    logger.warning(f"加载最大工作线程配置失败，使用默认值: {str(e)}")
 
 class Recommender:
     """推荐系统核心类
@@ -268,10 +282,10 @@ class Recommender:
             List[Dict]: 调整后的推荐结果
         """
         # 获取全局曝光比例
-        global_ratio = self.exposure_config['global_ratio']
+        global_ratio = self.exposure_config.get('global_ratio', 0.8)
         
         # 获取各池子配置
-        pools = self.exposure_config['pools']
+        pools = self.exposure_config.get('pools', {})
         
         # 应用曝光控制逻辑
         controlled_recommendations = []
@@ -529,7 +543,7 @@ class FeatureProcessor:
         JOIN posts p ON user_behaviors.post_id = p.post_id
         """
         
-        days = config.config_manager.get('recent_days')
+        days = self.recommender_config.config_manager.get('recent_days', 7)
         params = (
             user_id, days,
             user_id, days,
@@ -611,7 +625,7 @@ class FeatureProcessor:
             LIMIT 1000
         ) as active_users
         """
-        days = config.config_manager.get('recent_days')
+        days = self.recommender_config.config_manager.get('recent_days', 7)
         users = db_pool.query(sql, (
             user_id, days, 
             user_id, days, 
