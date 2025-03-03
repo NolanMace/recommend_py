@@ -18,6 +18,39 @@ from config.config_manager import get_config_manager
 recommender = None
 FeatureProcessor = None
 
+def scheduled_task(task_name: str, interval_minutes: int = 0):
+    """执行调度任务
+    
+    Args:
+        task_name: 任务名称
+        interval_minutes: 任务间隔（分钟）
+        
+    Returns:
+        bool: 任务是否执行成功
+    """
+    scheduler = get_scheduler()
+    logger = logging.getLogger("scheduler")
+    
+    try:
+        logger.info(f"开始执行任务: {task_name}")
+        
+        if task_name == "热门内容更新":
+            scheduler.generate_hot_topics()
+        elif task_name == "用户兴趣模型更新":
+            scheduler.update_features()
+        elif task_name == "全量数据分析":
+            scheduler.batch_generate_recommendations()
+        else:
+            logger.warning(f"未知的任务类型: {task_name}")
+            return False
+            
+        logger.info(f"任务执行完成: {task_name}")
+        return True
+        
+    except Exception as e:
+        logger.error(f"任务执行失败 {task_name}: {str(e)}")
+        return False
+
 def init_recommender():
     """延迟导入推荐器模块"""
     global recommender, FeatureProcessor
