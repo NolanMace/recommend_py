@@ -48,7 +48,7 @@ class DatabasePool:
             self.config = get_config_manager()
             
             # 连接池配置
-            self.db_config = self.config.get_section('database').get('mysql', {})
+            self.db_config = self.config.get('database', {}).get('mysql', {})
             self.pool_size = self.db_config.get('pool_size', 10)
             self.pool_recycle = self.db_config.get('pool_recycle', 3600)
             self.pool_timeout = self.db_config.get('pool_timeout', 30)
@@ -84,7 +84,7 @@ class DatabasePool:
             self.recovery_time = None
             
             # 熔断器配置
-            circuit_config = self.config.get_section('circuit_breaker')
+            circuit_config = self.config.get('circuit_breaker', {})
             self.circuit_enabled = circuit_config.get('enabled', True)
             db_circuit = circuit_config.get('services', {}).get('database', {})
             self.failure_threshold = db_circuit.get('failure_threshold', 3)

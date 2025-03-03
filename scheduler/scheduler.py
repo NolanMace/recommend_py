@@ -84,9 +84,9 @@ class TaskScheduler:
         self.config_manager = get_config_manager()
         
         # 获取配置
-        self.config = self.config_manager.get('scheduler')
-        self.database_config = self.config_manager.get('database')
-        self.hot_topics_config = self.config_manager.get('hot_topics')
+        self.config = self.config_manager.get('scheduler', {})
+        self.database_config = self.config_manager.get('database', {})
+        self.hot_topics_config = self.config_manager.get('hot_topics', {})
         
         # 创建线程池
         self.executor = ThreadPoolExecutor(max_workers=self.config.get('max_workers', 4))

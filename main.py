@@ -150,6 +150,7 @@ def main():
         sys.stdout.flush()
     
     # 启动定时任务线程
+    scheduler_thread = None  # 初始化为 None
     if not args.no_scheduler:
         try:
             print(f"[{datetime.now()}] 启动调度任务服务...")
@@ -166,7 +167,6 @@ def main():
             sys.stdout.flush()
     else:
         print(f"[{datetime.now()}] 已禁用调度任务服务")
-        scheduler_thread = None
         sys.stdout.flush()
     
     # 输出启动完成信息
