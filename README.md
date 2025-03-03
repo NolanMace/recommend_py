@@ -54,8 +54,9 @@
 - **编程语言**: Python 3.8+
 - **数据库**: MySQL
 - **缓存**: 基于 LRU 算法的内存缓存
-- **任务调度**: APScheduler
-- **Web 框架**: Flask (用于 API 服务)
+- **任务调度**: Schedule
+- **机器学习**: scikit-learn
+- **模型存储**: joblib
 
 ## 主要特点
 
@@ -144,85 +145,148 @@
 ### 依赖安装
 
 ```bash
+# 创建虚拟环境（推荐）
+python3 -m venv venv
+source venv/bin/activate  # Linux/Mac
+# 或
+.\venv\Scripts\activate  # Windows
+
 # 安装基础依赖
-python3 -m pip install numpy pandas schedule pymysql -i https://pypi.tuna.tsinghua.edu.cn/simple
+python3 -m pip install numpy pandas schedule pymysql scikit-learn joblib -i https://pypi.tuna.tsinghua.edu.cn/simple
 
 # 安装其他项目依赖
 python3 -m pip install -r requirements.txt -i https://pypi.tuna.tsinghua.edu.cn/simple
 ```
 
-### 数据库配置
+### 配置说明
 
-编辑 `config/config.py` 文件，修改数据库连接信息：
+系统使用 YAML 格式的配置文件，位于 `config` 目录下：
 
-```python
-MYSQL_CONFIG = {
-    'host': 'localhost',      # 数据库地址
-    'port': 3306,            # 数据库端口
-    'user': 'root',          # 数据库用户名
-    'password': 'root',      # 数据库密码
-    'database': 'recommend_system',  # 数据库名
-    'charset': 'utf8mb4',    # 字符集
-    'autocommit': True,      # 自动提交
-    'connect_timeout': 10,   # 连接超时（秒）
-    'cursorclass': 'DictCursor'  # 返回字典格式结果
-}
+- `config/default_config.yaml`: 默认配置文件
+- `config/config.yaml`: 用户自定义配置（优先级更高）
+
+数据库配置示例：
+
+```yaml
+database:
+  mysql:
+    host: localhost
+    port: 3306
+    user: root
+    password: root
+    database: recommend_system
+    charset: utf8mb4
+    pool_size: 10
+    pool_recycle: 3600
+    pool_timeout: 30
+    connect_timeout: 10
+
+circuit_breaker:
+  enabled: true
+  services:
+    database:
+      failure_threshold: 3
+      recovery_timeout: 60
 ```
 
-### 系统配置
+所有配置都可以通过配置管理器动态访问：
 
-所有系统配置都集中在 `config/config.py` 文件中，包括：
+```python
+from config.config_manager import get_config_manager
 
-- 数据库配置（MYSQL_CONFIG）
-- 连接池配置（POOL_CONFIG）
-- 缓存配置（CACHE_CONFIG）
-- 推荐引擎配置（RECOMMENDER_CONFIG）
-- 曝光池配置（EXPOSURE_CONFIG）
-- 任务调度配置（SCHEDULER_CONFIG）
-- 日志配置（LOGGING_CONFIG）
-- API 配置（API_CONFIG）
-- 监控配置（MONITOR_CONFIG）
-
-配置文件使用 Python 字典格式，便于修改和维护。所有配置项都有详细的注释说明。
+config = get_config_manager()
+db_config = config.get('database', {}).get('mysql', {})
+```
 
 ### 启动服务
 
 ```bash
 # 初始化数据库（首次运行需要）
-python3 app.py --init-db
+python3 main.py --init-db
 
-# 启动服务
-python3 app.py
+# 启动服务（默认模式）
+python3 main.py
 
-# 调试模式启动
-python3 app.py --debug
+# 调试模式启动（输出详细日志）
+python3 main.py --debug
 
-# 执行测试任务
-python3 app.py --run-tasks
+# 执行测试任务（立即执行所有定时任务）
+python3 main.py --run-tasks
 
-# 禁用调度器启动
-python3 app.py --no-scheduler
+# 禁用调度器启动（不运行定时任务）
+python3 main.py --no-scheduler
+
+# 指定日志文件路径（默认输出到 logs/app.log）
+python3 main.py --log-file logs/custom.log
 ```
+
+## 命令行参数说明
+
+- `--init-db`: 初始化数据库表结构和基础数据（首次运行时需要）
+- `--debug`: 启用调试模式，输出更详细的日志信息，方便开发调试
+- `--run-tasks`: 立即执行所有定时任务（热门内容更新、用户兴趣模型更新、全量数据分析）
+- `--no-scheduler`: 禁用定时任务调度器，适用于只需要 API 服务的场景
+- `--log-file PATH`: 指定日志文件路径，默认输出到 logs/app.log
+
+### 日志级别说明
+
+- DEBUG: 详细的调试信息，包括 SQL 查询和缓存操作
+- INFO: 常规操作信息，如任务执行、服务启动
+- WARNING: 需要注意但不影响系统运行的问题
+- ERROR: 影响功能但不影响系统稳定性的错误
+- CRITICAL: 严重错误，可能导致系统不可用
 
 ## 测试工具
 
-系统提供了测试工具，用于验证推荐功能：
+系统提供了测试工具，用于验证推荐功能和性能：
 
 ```bash
-# 默认测试（使用随机用户）
-python test_recommender.py
+# 运行单元测试
+python3 -m pytest tests/
 
-# 指定用户测试
-python test_recommender.py --user 12345
+# 运行推荐系统测试
+python3 tests/test_recommender.py
 
-# 批量测试多个用户
-python test_recommender.py --batch 5
+# 运行性能测试（包含并发测试）
+python3 tests/test_performance.py
 
-# 测试曝光池刷新
-python test_recommender.py --pool
+# 运行集成测试
+python3 tests/test_integration.py
+```
 
-# 保存测试结果到文件
-python test_recommender.py --user 12345 --save
+### 测试用例说明
+
+- **单元测试**: 测试各个模块的基本功能
+
+  - 缓存系统测试
+  - 数据库连接池测试
+  - 配置管理器测试
+  - 推荐算法测试
+
+- **集成测试**: 测试模块间的交互
+
+  - 推荐流程测试
+  - 任务调度测试
+  - 数据更新流程测试
+
+- **性能测试**: 测试系统在压力下的表现
+  - 并发用户请求测试
+  - 缓存性能测试
+  - 数据库连接池性能测试
+
+### 测试数据
+
+测试数据位于 `tests/data` 目录：
+
+- `test_posts.csv`: 测试用帖子数据
+- `test_users.csv`: 测试用户数据
+- `test_interactions.csv`: 用户交互数据
+
+运行测试前请确保测试数据已正确导入：
+
+```bash
+# 导入测试数据
+python3 tests/import_test_data.py
 ```
 
 ## API 接口
