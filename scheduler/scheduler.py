@@ -196,7 +196,10 @@ class TaskScheduler:
             """
             
             try:
-                users = self.db_pool.query(sql, (batch_size,))
+                with self.db_pool.connection() as conn:
+                    with conn.cursor(dictionary=True) as cursor:
+                        cursor.execute(sql, (batch_size,))
+                        users = cursor.fetchall()
             except Exception as e:
                 self.logger.warning(f"查询活跃用户失败: {str(e)}")
                 users = []
@@ -212,7 +215,7 @@ class TaskScheduler:
             self.logger.info(f"开始为 {total_users} 个用户生成推荐...")
             
             for i, user in enumerate(users, 1):
-                user_id = user['user_id'] if isinstance(user, dict) else user[0]
+                user_id = user['user_id']
                 try:
                     # 为用户生成推荐
                     recommendations = rec.get_recommendations(user_id, page=1, page_size=20)

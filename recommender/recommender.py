@@ -644,30 +644,52 @@ class FeatureProcessor:
                     # 如果没有足够的有效文本，使用默认模型
                     if len(valid_texts) < 2:
                         self.logger.warning(f"有效文本数量不足(当前: {len(valid_texts)})，使用默认模型")
-                        # 创建一个基础的TF-IDF矩阵
-                        self.tfidf = TfidfVectorizer(**self.recommender_config.TFIDF_PARAMS)
-                        self.tfidf_matrix = self.tfidf.fit_transform(['default text placeholder'])
+                        # 创建一个基础的TF-IDF矩阵，使用最宽松的参数
+                        default_params = {
+                            'max_features': None,  # 不限制特征数量
+                            'min_df': 1,  # 词至少出现1次
+                            'max_df': 1.0,  # 不移除任何词
+                            'ngram_range': (1, 1),  # 只使用单个词
+                            'stop_words': None,
+                            'token_pattern': r'(?u)\b\w+\b'
+                        }
+                        self.tfidf = TfidfVectorizer(**default_params)
+                        self.tfidf_matrix = self.tfidf.fit_transform(['示例文本 示例内容'])
                         self.feature_names = self.tfidf.get_feature_names_out()
                         return
                     
                     self.logger.info(f"使用 {len(valid_texts)} 条有效文本进行训练")
                     
-                    # 配置TF-IDF向量器
+                    # 配置TF-IDF向量器 - 针对小数据集调整参数
                     tfidf_params = {
-                        'max_features': 5000,  # 限制特征数量
-                        'min_df': 1,  # 词必须至少出现1次
-                        'max_df': 0.95,  # 出现在超过95%文档中的词会被移除
-                        'ngram_range': (1, 2),  # 使用单个词和双词组合
-                        'stop_words': None,  # 不使用停用词，因为可能有中文内容
+                        'max_features': None,  # 不限制特征数量
+                        'min_df': 1,  # 词至少出现1次
+                        'max_df': 1.0,  # 不移除任何词
+                        'ngram_range': (1, 1),  # 只使用单个词
+                        'stop_words': None,  # 不使用停用词
                         'strip_accents': 'unicode',
                         'lowercase': True,
                         'analyzer': 'word',
                         'token_pattern': r'(?u)\b\w+\b'  # 匹配任何单词字符
                     }
                     
+                    # 如果数据量足够大，才使用更严格的参数
+                    if len(valid_texts) > 100:
+                        tfidf_params.update({
+                            'max_features': 5000,
+                            'min_df': 2,
+                            'max_df': 0.95,
+                            'ngram_range': (1, 2)
+                        })
+                    
                     # 使用配置中的参数覆盖默认值
                     if hasattr(self, 'recommender_config'):
-                        tfidf_params.update(self.recommender_config.TFIDF_PARAMS)
+                        config_params = self.recommender_config.TFIDF_PARAMS.copy()
+                        # 确保min_df和max_df的值合理
+                        if len(valid_texts) < 100:
+                            config_params.pop('min_df', None)
+                            config_params.pop('max_df', None)
+                        tfidf_params.update(config_params)
                     
                     self.logger.debug(f"TF-IDF参数配置: {tfidf_params}")
                     
@@ -693,22 +715,46 @@ class FeatureProcessor:
                             self.logger.warning(f"保存TF-IDF模型失败: {str(e)}")
                     except ValueError as ve:
                         self.logger.warning(f"模型训练出现问题，使用默认模型: {str(ve)}")
-                        # 创建一个基础的TF-IDF矩阵
-                        self.tfidf = TfidfVectorizer(**tfidf_params)
-                        self.tfidf_matrix = self.tfidf.fit_transform(['default text placeholder'])
+                        # 使用最基础的配置重试
+                        basic_params = {
+                            'max_features': None,
+                            'min_df': 1,
+                            'max_df': 1.0,
+                            'ngram_range': (1, 1),
+                            'stop_words': None,
+                            'token_pattern': r'(?u)\b\w+\b'
+                        }
+                        self.tfidf = TfidfVectorizer(**basic_params)
+                        self.tfidf_matrix = self.tfidf.fit_transform(valid_texts)
                         self.feature_names = self.tfidf.get_feature_names_out()
                 else:
                     self.logger.warning("没有可用的训练数据，使用默认模型")
                     # 创建一个基础的TF-IDF矩阵
-                    self.tfidf = TfidfVectorizer(**self.recommender_config.TFIDF_PARAMS)
-                    self.tfidf_matrix = self.tfidf.fit_transform(['default text placeholder'])
+                    default_params = {
+                        'max_features': None,
+                        'min_df': 1,
+                        'max_df': 1.0,
+                        'ngram_range': (1, 1),
+                        'stop_words': None,
+                        'token_pattern': r'(?u)\b\w+\b'
+                    }
+                    self.tfidf = TfidfVectorizer(**default_params)
+                    self.tfidf_matrix = self.tfidf.fit_transform(['示例文本 示例内容'])
                     self.feature_names = self.tfidf.get_feature_names_out()
                     
         except Exception as e:
             self.logger.error(f"模型训练失败: {str(e)}")
             # 确保即使出错也有一个可用的基础模型
-            self.tfidf = TfidfVectorizer(**self.recommender_config.TFIDF_PARAMS)
-            self.tfidf_matrix = self.tfidf.fit_transform(['default text placeholder'])
+            default_params = {
+                'max_features': None,
+                'min_df': 1,
+                'max_df': 1.0,
+                'ngram_range': (1, 1),
+                'stop_words': None,
+                'token_pattern': r'(?u)\b\w+\b'
+            }
+            self.tfidf = TfidfVectorizer(**default_params)
+            self.tfidf_matrix = self.tfidf.fit_transform(['示例文本 示例内容'])
             self.feature_names = self.tfidf.get_feature_names_out()
     
     def config_updated(self, path: str, new_value: Any):
