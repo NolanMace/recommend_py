@@ -196,7 +196,7 @@ class TaskScheduler:
             """
             
             try:
-                users = self.db_pool.execute_query(sql, {'limit': batch_size})
+                users = self.db_pool.execute_query(sql, (batch_size,))
             except Exception as e:
                 self.logger.warning(f"查询活跃用户失败: {str(e)}")
                 users = []
