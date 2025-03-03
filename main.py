@@ -11,7 +11,7 @@ import sys
 import time
 from datetime import datetime
 
-from scheduler import setup_scheduler, scheduled_task
+from scheduler.scheduler import TaskScheduler, scheduled_task
 from database import get_db_pool
 
 # 全局退出标志
@@ -154,7 +154,8 @@ def main():
         try:
             print(f"[{datetime.now()}] 启动调度任务服务...")
             sys.stdout.flush()
-            scheduler_thread = threading.Thread(target=setup_scheduler, daemon=True)
+            scheduler = TaskScheduler()
+            scheduler_thread = threading.Thread(target=scheduler.start, daemon=True)
             scheduler_thread.start()
             print(f"[{datetime.now()}] 调度任务线程已启动")
             sys.stdout.flush()

@@ -11,7 +11,7 @@ import logging
 from concurrent.futures import ThreadPoolExecutor
 from typing import Dict, Any
 
-from recommender import Recommender, FeatureProcessor
+from recommender.recommender import Recommender, FeatureProcessor
 from config import HOT_TOPICS_CONFIG, DATABASE_CONFIG
 from database import get_db_pool
 from config.config_manager import get_config_manager
