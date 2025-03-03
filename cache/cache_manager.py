@@ -193,7 +193,7 @@ class CacheManager:
         self.config = get_config_manager()
         
         # 缓存配置
-        cache_config = self.config.get_section('cache')
+        cache_config = self.config.get('cache', {})
         self.memory_cache_config = cache_config.get('memory', {})
         
         # 内存缓存启用状态
