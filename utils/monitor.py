@@ -272,7 +272,7 @@ class TimerContext:
             elapsed_time = (time.time() - self.start_time) * 1000  # 毫秒
             self.collector.record_metric('response_times', {
                 'name': self.name,
-                'time_ms': elapsed_time
+                'time_ms': elapsed_time 
             })
             
             if exc_type:
