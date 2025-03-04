@@ -67,6 +67,18 @@ def run_all_tasks():
 
 def main():
     """主程序入口"""
+    # 创建日志目录
+    log_dirs = ['info', 'error', 'debug']
+    for dir_name in log_dirs:
+        dir_path = os.path.join('logs', dir_name)
+        if not os.path.exists(dir_path):
+            try:
+                os.makedirs(dir_path)
+                print(f"创建日志目录: {dir_path}")
+            except Exception as e:
+                print(f"创建日志目录失败 {dir_path}: {str(e)}")
+                raise
+
     start_time = time.time()
     print(f"\n[{datetime.now()}] 推荐系统启动中...")
     sys.stdout.flush()  # 立即刷新输出缓冲区
