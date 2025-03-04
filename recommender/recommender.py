@@ -682,7 +682,7 @@ class FeatureProcessor:
         try:
             with self._lock:
                 # 先尝试从缓存读取
-                self.logger.debug("尝试从缓存读取帖子数据...")
+                self.logger.info("尝试从缓存读取帖子数据...")
                 cached_posts = disk_cache.get('posts_data')
                 if cached_posts is not None:
                     self.posts = cached_posts
@@ -690,33 +690,38 @@ class FeatureProcessor:
                     return
                 
                 # 从posts表加载帖子数据
-                self.logger.debug("从数据库加载帖子数据...")
+                self.logger.info("从数据库加载帖子数据...")
                 sql = """
                 SELECT p.post_id, p.post_title as title, p.hashtags as tags,
                        COALESCE(GROUP_CONCAT(DISTINCT c.content SEPARATOR ' '), '') as content
                 FROM posts p
                 LEFT JOIN comments c ON p.post_id = c.post_id
                 GROUP BY p.post_id, p.post_title, p.hashtags
+                LIMIT 10000  -- 限制加载数量，避免内存溢出
                 """
                 
+                self.logger.info("执行数据库查询...")
                 results = db_pool.query(sql)
                 if not results:
                     self.logger.warning("没有找到任何帖子数据")
                     return
                 
+                self.logger.info(f"从数据库加载了 {len(results)} 条帖子数据")
+                
                 # 转换结果为DataFrame
+                self.logger.info("转换数据为DataFrame...")
                 self.posts = pd.DataFrame(results)
                 self.posts['tags'] = self.posts['tags'].fillna('').str.replace(',', ' ')
                 
                 # 合并标签和评论内容作为特征
-                self.logger.debug("处理帖子特征...")
+                self.logger.info("处理帖子特征...")
                 self.posts['features'] = self.posts.apply(
                     lambda x: x['tags'] + ' ' + ' '.join(x['content'].split()[:50]) 
                     if x['content'] else x['tags'], axis=1
                 )
                 
                 # 缓存结果
-                self.logger.debug("缓存帖子数据...")
+                self.logger.info("缓存帖子数据...")
                 disk_cache.set('posts_data', self.posts)
                 
                 self.logger.info(f"成功加载并处理了 {len(self.posts)} 条帖子数据")
@@ -753,13 +758,18 @@ class FeatureProcessor:
                 
                 if not self.posts.empty:
                     # 数据预处理
-                    self.logger.debug("开始数据预处理...")
+                    self.logger.info("开始数据预处理...")
                     feature_texts = self.posts['features'].fillna('')
+                    self.logger.info(f"总共需要处理 {len(feature_texts)} 条文本")
                     
                     # 文本清理和验证
+                    self.logger.info("开始文本清理和验证...")
                     valid_texts = []
                     invalid_count = 0
-                    for text in feature_texts:
+                    for i, text in enumerate(feature_texts):
+                        if i % 1000 == 0:  # 每处理1000条打印一次进度
+                            self.logger.info(f"已处理 {i}/{len(feature_texts)} 条文本")
+                        
                         # 转换为字符串并清理
                         text = str(text).strip()
                         # 移除过短的文本
@@ -792,7 +802,7 @@ class FeatureProcessor:
                         self.feature_names = self.tfidf.get_feature_names_out()
                         return
                     
-                    self.logger.info(f"使用 {len(valid_texts)} 条有效文本进行训练")
+                    self.logger.info(f"开始训练TF-IDF向量器，使用 {len(valid_texts)} 条有效文本...")
                     
                     # 配置TF-IDF向量器 - 针对小数据集调整参数
                     tfidf_params = {
