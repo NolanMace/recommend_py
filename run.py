@@ -46,6 +46,16 @@ class JsonFormatter(logging.Formatter):
 
 def setup_logging():
     """配置日志系统"""
+    # 确保所有日志目录存在
+    for dir_path in LOG_DIRS.values():
+        if not os.path.exists(dir_path):
+            try:
+                os.makedirs(dir_path)
+                print(f"创建日志目录: {dir_path}")
+            except Exception as e:
+                print(f"创建日志目录失败 {dir_path}: {str(e)}")
+                raise
+    
     logger = logging.getLogger()
     logger.setLevel(logging.DEBUG)
     

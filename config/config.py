@@ -157,7 +157,7 @@ LOGGING_CONFIG = {
             'level': 'INFO',
             'formatter': 'standard',
             'class': 'logging.handlers.RotatingFileHandler',
-            'filename': '/var/log/recommend_system/recommend_system.log',  # 修改为服务器日志路径
+            'filename': 'logs/recommend_system.log',  # 修改为相对路径
             'maxBytes': 10485760,  # 10MB
             'backupCount': 5
         }
